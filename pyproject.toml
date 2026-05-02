@@ -30,6 +30,10 @@ dev = [
     "pytest>=8",
     "pytest-xdist>=3.5",
     "scipy>=1.13",
+    "ruff>=0.6",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+    "maturin>=1.5,<2.0",
 ]
 
 [project.scripts]
@@ -39,3 +43,81 @@ forge-detect = "forge_detect.cli:main"
 features = ["pyo3/extension-module"]
 python-source = "python"
 module-name = "forge_detect._core"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["python", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",      # pycodestyle
+    "F",            # pyflakes
+    "I",            # isort
+    "N",            # pep8-naming
+    "UP",           # pyupgrade
+    "B",            # flake8-bugbear
+    "C4",           # flake8-comprehensions
+    "SIM",          # flake8-simplify
+    "RUF",          # ruff-specific
+    "ANN",          # flake8-annotations (type-hint coverage)
+    "PTH",          # flake8-use-pathlib
+    "PL",           # pylint
+    "NPY",          # numpy-specific
+]
+ignore = [
+    "ANN401",       # allow Any in narrow places (e.g. **kwargs forwarding)
+    "PLR0913",      # tolerate many args in numerical solvers
+    "PLR2004",      # magic numbers are routine in math kernels
+    "N803",         # math variables (e.g. K, W) keep their math casing
+    "N806",         # math variable names in function bodies (Ix, Iy, J...)
+    "E741",         # ambiguous l/I/O — these match the math notation
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "PLR2004"]
+"examples/**" = ["ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+files = ["python/forge_detect", "tests"]
+
+[[tool.mypy.overrides]]
+# Third-party libs without bundled type stubs
+module = [
+    "torch.*",
+    "torchvision.*",
+    "matplotlib.*",
+    "sklearn.*",
+    "scipy.*",
+    "PIL.*",
+    "tqdm.*",
+    "forge_detect._core",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Tests can be looser
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error",
+    "ignore::DeprecationWarning:torch.*",
+    "ignore::UserWarning:torchvision.*",
+]
