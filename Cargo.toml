@@ -1,0 +1,32 @@
+[package]
+name = "hyperplane_core"
+version = "0.1.0"
+edition = "2021"
+description = "Hyperplane-Forge: deepfake detection via physical-manifold settlement (Rust math core)"
+license = "MIT"
+authors = ["Siryk Mykyta"]
+
+[lib]
+name = "hyperplane_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
+ndarray = { version = "0.16", features = ["rayon"] }
+rayon = "1.10"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cast_precision_loss = "allow"
+cast_possible_truncation = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"
+many_single_char_names = "allow"
+module_name_repetitions = "allow"
