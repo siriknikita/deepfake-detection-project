@@ -72,6 +72,8 @@ def extract_features_over_dataset(
     device: str = "cpu",
     params: PipelineParams | None = None,
     log_every: int = 25,
+    cnn_model: Any | None = None,
+    cnn_device: str = "cpu",
 ) -> FeatureMatrix:
     """Run the full pipeline over every record of ``dataset`` and return features.
 
@@ -85,6 +87,9 @@ def extract_features_over_dataset(
             :func:`forge_detect.pipeline.detect`.
         params: Pipeline configuration, defaults to PipelineParams().
         log_every: Print a progress line every N records (set to 0 to silence).
+        cnn_model: Optional trained ChromaticEfficientNet to compute the
+            trust map. If ``None``, the heuristic fallback is used.
+        cnn_device: PyTorch device the CNN lives on.
 
     Returns:
         :class:`FeatureMatrix` with ``(features, labels, paths)``.
@@ -98,7 +103,13 @@ def extract_features_over_dataset(
         image = record[0]
         label = record[1]
         rgb = _to_hwc_float(image)
-        result = detect(rgb, device=device, params=params)
+        result = detect(
+            rgb,
+            device=device,
+            params=params,
+            cnn_model=cnn_model,
+            cnn_device=cnn_device,
+        )
         feats.append(result.features)
         labels.append(int(label))
         path = getattr(getattr(dataset, "_records", [None])[i], "path", None)
@@ -143,6 +154,8 @@ def evaluate_pipeline(
     test_fraction: float = 0.2,
     seed: int = 0,
     cache_path: str | Path | None = None,
+    cnn_model: Any | None = None,
+    cnn_device: str = "cpu",
 ) -> tuple[ClassifierMetrics, ClassifierMetrics, Any, FeatureMatrix]:
     """Train + evaluate the binary classifier on a labeled dataset.
 
@@ -161,7 +174,13 @@ def evaluate_pipeline(
         fm = FeatureMatrix.load(cache_path)
     else:
         print(f"extracting features over {len(dataset)} records ...")  # type: ignore[arg-type]
-        fm = extract_features_over_dataset(dataset, device=device, params=params)
+        fm = extract_features_over_dataset(
+            dataset,
+            device=device,
+            params=params,
+            cnn_model=cnn_model,
+            cnn_device=cnn_device,
+        )
         if cache_path is not None:
             fm.save(cache_path)
             print(f"cached features to {cache_path}")

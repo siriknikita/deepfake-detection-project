@@ -113,3 +113,18 @@ def test_load_image_round_trip() -> None:
         assert (loaded.min() >= 0.0) and (loaded.max() <= 1.0)
     finally:
         p.unlink(missing_ok=True)
+
+
+def test_detect_with_trained_cnn_model() -> None:
+    """detect() routes the CNN forward pass into the trust map when one is supplied."""
+    pytest.importorskip("torch")
+    from forge_detect.cnn import build_chromatic_efficientnet
+
+    rgb = _disk((32, 32))
+    model = build_chromatic_efficientnet(pretrained=False)
+    model.eval()
+    result = detect(rgb, params=_quick_params(), cnn_model=model)
+    # Output shape and finiteness are the contract; semantic correctness
+    # of the trust map depends on training, which is not our concern here.
+    assert result.solve.z_star.shape == (32, 32)
+    assert np.isfinite(result.features).all()

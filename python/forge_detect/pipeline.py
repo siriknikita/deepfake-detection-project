@@ -40,6 +40,8 @@ def detect(
     params: PipelineParams | None = None,
     classifier: object | None = None,
     trust_map: np.ndarray | None = None,
+    cnn_model: object | None = None,
+    cnn_device: str = "cpu",
 ) -> DetectResult:
     """Run end-to-end detection on a single image.
 
@@ -50,8 +52,14 @@ def detect(
         classifier: Optional trained binary classifier exposing
             ``predict_proba(features_2d)``. If ``None``, the result has
             ``deepfake_probability=None`` and only raw features are returned.
-        trust_map: Optional pre-computed ``W_cnn``; defaults to the
-            :func:`forge_detect.trust_map.heuristic_trust_map` fallback.
+        trust_map: Optional pre-computed ``W_cnn``. Takes precedence over
+            ``cnn_model`` when both are supplied.
+        cnn_model: Optional trained ChromaticEfficientNet (or any callable
+            ``model(rgb_BCHW_tensor) -> (B, H, W) tensor``). When supplied
+            and no explicit ``trust_map`` is given, the model produces the
+            trust map; otherwise the heuristic fallback is used.
+        cnn_device: PyTorch device the model lives on (``"cpu"``,
+            ``"cuda"``, ``"mps"``).
 
     Returns:
         A :class:`DetectResult` with the impact map, feature vector, and
@@ -65,7 +73,14 @@ def detect(
         msg = f"image must be (H, W, 3), got {rgb.shape}"
         raise ValueError(msg)
 
-    w_cnn = trust_map if trust_map is not None else heuristic_trust_map(rgb)
+    if trust_map is not None:
+        w_cnn = trust_map
+    elif cnn_model is not None:
+        from forge_detect.cnn import predict_trust_map
+
+        w_cnn = predict_trust_map(cnn_model, rgb, device=cnn_device)
+    else:
+        w_cnn = heuristic_trust_map(rgb)
     if w_cnn.shape != rgb.shape[:2]:
         msg = f"trust_map shape {w_cnn.shape} must match image H × W {rgb.shape[:2]}"
         raise ValueError(msg)

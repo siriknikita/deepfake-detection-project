@@ -15,6 +15,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 from forge_detect.config import PdeParams, PipelineParams
 from forge_detect.pipeline import detect
@@ -30,6 +31,18 @@ def _add_detect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParse
         choices=("cpu", "cuda"),
         default="cpu",
         help="Backend selection (default: cpu).",
+    )
+    p.add_argument(
+        "--cnn-checkpoint",
+        type=Path,
+        default=None,
+        help="Path to a trained ChromaticEfficientNet .pt; uses the heuristic if omitted.",
+    )
+    p.add_argument(
+        "--cnn-device",
+        choices=("auto", "cpu", "cuda", "mps"),
+        default="auto",
+        help="Device for the CNN forward pass (default: auto).",
     )
     p.add_argument(
         "--n-scales",
@@ -57,12 +70,47 @@ def _add_detect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParse
     )
 
 
+def _load_cnn_if_given(args: argparse.Namespace) -> tuple[Any | None, str]:
+    """Load a CNN checkpoint (if `--cnn-checkpoint`) and return (model, device)."""
+    ckpt: Path | None = getattr(args, "cnn_checkpoint", None)
+    if ckpt is None:
+        return None, "cpu"
+    from forge_detect.cnn import build_chromatic_efficientnet, load_weights
+
+    cnn_device = _resolve_cnn_device(getattr(args, "cnn_device", "auto"))
+    model = build_chromatic_efficientnet(pretrained=False)
+    load_weights(model, ckpt)
+    model.eval()
+    return model.to(cnn_device), cnn_device
+
+
+def _resolve_cnn_device(prefer: str) -> str:
+    if prefer != "auto":
+        return prefer
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    if torch.cuda.is_available():
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def _run_detect(args: argparse.Namespace) -> int:
     params = PipelineParams(
         n_scales=args.n_scales,
         pde=PdeParams(max_iter=args.max_iter),
     )
-    result = detect(args.image, device=args.device, params=params)
+    cnn_model, cnn_device = _load_cnn_if_given(args)
+    result = detect(
+        args.image,
+        device=args.device,
+        params=params,
+        cnn_model=cnn_model,
+        cnn_device=cnn_device,
+    )
     print(f"Image:        {result.image_path}")
     print(f"Iterations:   {result.solve.iterations}")
     print(f"Converged:    {result.solve.converged}")
@@ -207,6 +255,17 @@ def _add_eval_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     _add_dataset_args(p)
     p.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     p.add_argument(
+        "--cnn-checkpoint",
+        type=Path,
+        default=None,
+        help="Path to a trained ChromaticEfficientNet .pt; heuristic trust map if omitted.",
+    )
+    p.add_argument(
+        "--cnn-device",
+        choices=("auto", "cpu", "cuda", "mps"),
+        default="auto",
+    )
+    p.add_argument(
         "--cache",
         type=Path,
         default=None,
@@ -228,11 +287,14 @@ def _run_eval(args: argparse.Namespace) -> int:
 
     dataset = _build_dataset(args)
     params = PipelineParams(n_scales=args.n_scales, pde=PdeParams(max_iter=args.max_iter))
+    cnn_model, cnn_device = _load_cnn_if_given(args)
     val_m, test_m, classifier, _fm = evaluate_pipeline(
         dataset,
         device=args.device,
         params=params,
         cache_path=args.cache,
+        cnn_model=cnn_model,
+        cnn_device=cnn_device,
     )
     print("\n--- Validation ---")
     print(f"  AUROC:    {val_m.auroc:.4f}")
@@ -259,6 +321,8 @@ def _add_bench_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
     p = sub.add_parser("bench", help="Extract features over a dataset and write CSV.")
     _add_dataset_args(p)
     p.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
+    p.add_argument("--cnn-checkpoint", type=Path, default=None)
+    p.add_argument("--cnn-device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     p.add_argument("--out", type=Path, required=True, help="Output CSV path.")
     p.add_argument("--max-iter", type=int, default=PdeParams().max_iter)
     p.add_argument("--n-scales", type=int, default=PipelineParams().n_scales)
@@ -270,7 +334,14 @@ def _run_bench(args: argparse.Namespace) -> int:
 
     dataset = _build_dataset(args)
     params = PipelineParams(n_scales=args.n_scales, pde=PdeParams(max_iter=args.max_iter))
-    fm = extract_features_over_dataset(dataset, device=args.device, params=params)
+    cnn_model, cnn_device = _load_cnn_if_given(args)
+    fm = extract_features_over_dataset(
+        dataset,
+        device=args.device,
+        params=params,
+        cnn_model=cnn_model,
+        cnn_device=cnn_device,
+    )
     fm.save(args.out)
     print(f"Saved {fm.features.shape[0]} feature rows to {args.out}")
     if args.summary is not None:
