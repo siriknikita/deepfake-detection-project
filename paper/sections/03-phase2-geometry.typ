@@ -11,12 +11,12 @@ hyperplane forge (Section 4) consumes only these two outputs.
 The discrete first-derivative operators in $x$ and $y$ are
 implemented as $3 times 3$ convolutions
 
-$ K_x^"Scharr" = 1/16 mat(
+$ K_x^"Scharr" = 1/32 mat(
   -3,  0, +3;
   -10, 0, +10;
   -3,  0, +3
 ), quad
-K_y^"Scharr" = 1/16 mat(
+K_y^"Scharr" = 1/32 mat(
   -3, -10, -3;
    0,   0,  0;
   +3, +10, +3
@@ -28,25 +28,57 @@ $I_w$ or one of the $"DoG"_k$ bands of Phase 1) is
 $ I_x (x,y) = (K_x^"Scharr" * I)(x,y), quad I_y (x,y) = (K_y^"Scharr" * I)(x,y). $ <eq-gradient>
 
 The conventional Sobel kernels use the row pattern $(-1, -2, -1)$ in
-place of $(-3, -10, -3)$. Both kernels are first-order accurate for a
-smooth $I$, but they differ in *rotational variance*: the angular
-deviation between the discrete gradient and the continuous gradient
-$nabla I$ varies with the orientation of an edge.
+place of $(-3, -10, -3)$. Both kernels belong to the *family* of
+horizontally antisymmetric, vertically symmetric $3 times 3$
+operators
+
+$ K(a, b) = c(a, b) mat(-a, 0, a; -b, 0, b; -a, 0, a), $ <eq-kernel-family>
+
+parameterized by the outer-row coefficient $a > 0$, the center-row
+coefficient $b > 0$, and a *calibration constant* $c(a, b)$ chosen so
+that the operator is a *consistent* finite-difference approximation to
+$partial slash partial x$. To find $c$, demand that $K(a, b)$ applied
+to a unit-slope ramp $f(y, x) = x$ returns the true derivative, namely
+$1$, at every interior pixel. Substituting the $3 times 3$ patch
+$mat((x-1), x, (x+1); (x-1), x, (x+1); (x-1), x, (x+1))$ into the
+unnormalized kernel:
+
+$ c(a, b) thin [thin underbrace(-a(x-1) + a(x+1), = 2a) thin
+                + thin underbrace(-b(x-1) + b(x+1), = 2b) thin
+                + thin underbrace(-a(x-1) + a(x+1), = 2a) thin]
+              = c(a, b) thin (4a + 2b) thin stretch(=)^! thin 1, $
+
+so the unique calibration is
+
+$ c(a, b) = 1 / (4 a + 2 b). $ <eq-calibration>
+
+For Scharr $(a, b) = (3, 10)$ this gives $c = 1/32$, the prefactor in
+@eq-scharr-kernels above; for Sobel $(a, b) = (1, 2)$ it gives $c = 1/8$.
+Note that $c(a, b)$ depends only on the kernel weights, not on the
+input — every input gradient of magnitude $g$ produces a discrete
+response of exactly $g$ at any interior pixel where the second-order
+remainder of the local Taylor expansion vanishes.
+
+@eq-kernel-family and @eq-calibration determine the *response*; what
+remains free is the *direction*. Sobel and Scharr disagree not in
+calibration but in *rotational variance*: the angular deviation
+between the discrete gradient and the continuous gradient $nabla I$
+varies with the orientation of an edge.
 
 For an idealized edge with continuous gradient direction $theta$
-ranging over $[0, 2pi)$, the discrete-gradient direction obtained from
-a $3 times 3$ kernel of the form
-
-$ K(a, b) = 1/(4a + 2b) mat(-a, 0, a; -b, 0, b; -a, 0, a) $
-
-deviates from $theta$ by some $epsilon_(a, b)(theta)$. Scharr's
-coefficients are the unique positive solution to the minimax problem
+ranging over $[0, 2 pi)$, the discrete-gradient direction obtained
+from $K(a, b)$ deviates from $theta$ by some $epsilon_(a, b)(theta)$.
+Scharr's coefficients are the unique positive solution to the
+minimax problem
 
 $ min_(a, b > 0) max_(theta) abs(epsilon_(a, b)(theta)), $
 
 namely $(a, b) = (3, 10)$, which minimizes the worst-case angular
 error to about $0.1 degree$ — against approximately $5 degree$ for the
-Sobel kernel $(a, b) = (1, 2)$. Rotational symmetry is what we need: the structural
+Sobel kernel $(a, b) = (1, 2)$. The calibration $c(a, b) = 1 / 32$ for
+Scharr is therefore not arbitrary but follows from
+@eq-calibration once the rotational-symmetry optimization has selected
+the kernel weights. Rotational symmetry is what we need: the structural
 tensor (Subsection 3.2) and the Lambertian gradient (Section 4) both
 take the gradient *as a vector* and rely on its direction being
 correct independent of how the underlying geometry happens to be

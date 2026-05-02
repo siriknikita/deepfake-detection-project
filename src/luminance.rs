@@ -11,6 +11,8 @@
 use ndarray::{Array2, Array3, ArrayView2, ArrayView3, Axis};
 use rayon::prelude::*;
 
+use crate::util::mirror;
+
 /// Tolerance for the chromatic-weight unit-sum constraint.
 pub const WEIGHT_SUM_TOL: f32 = 1.0e-3;
 
@@ -63,17 +65,6 @@ fn gaussian_kernel_1d(sigma: f32) -> Vec<f32> {
         *v /= sum;
     }
     k
-}
-
-/// Mirror an out-of-range index back into `[0, n)` for Neumann boundary handling.
-#[inline]
-fn mirror(i: i32, n: i32) -> usize {
-    debug_assert!(n > 0);
-    let mut i = if i < 0 { -i } else { i };
-    if i >= n {
-        i = 2 * n - i - 2;
-    }
-    i.clamp(0, n - 1) as usize
 }
 
 /// Apply a separable 2D Gaussian blur of standard deviation `sigma` with mirror
@@ -252,17 +243,6 @@ mod tests {
                 k[n - 1 - i]
             );
         }
-    }
-
-    #[test]
-    fn mirror_basic() {
-        // n = 5, valid indices [0, 4].
-        assert_eq!(mirror(-1, 5), 1);
-        assert_eq!(mirror(-2, 5), 2);
-        assert_eq!(mirror(0, 5), 0);
-        assert_eq!(mirror(4, 5), 4);
-        assert_eq!(mirror(5, 5), 3);
-        assert_eq!(mirror(6, 5), 2);
     }
 
     #[test]
