@@ -75,6 +75,9 @@ ignore = [
     "PLC0415",      # lazy imports are intentional for optional deps (torch)
     "RUF001",       # math notation in docstrings/strings (×, −, etc.)
     "RUF002",       # ambiguous Greek letters in docstrings — they're math
+    "RUF046",       # int(int) idioms appear in numerical glue code
+    "N812",         # `import torch.nn.functional as F` is the canonical idiom
+    "PLR0915",      # numerical kernels accumulate many sequential statements
 ]
 
 [tool.ruff.lint.per-file-ignores]

@@ -99,11 +99,13 @@ def test_cpu_backend_constant_image_yields_uniform_z_star() -> None:
     assert result.z_star.std() < 1e-2
 
 
-def test_cuda_backend_raises_until_implemented() -> None:
+def test_cuda_backend_runs_on_torch_cpu() -> None:
+    """CudaBackend in CPU-fallback mode produces a valid SolveResult."""
     pytest.importorskip("torch")
     from forge_detect.backends.cuda import CudaBackend
 
-    rgb = _rgb_disk((8, 8))
-    w_cnn = np.zeros((8, 8), dtype=np.float32)
-    with pytest.raises(NotImplementedError):
-        CudaBackend().solve(rgb, w_cnn, _params())
+    rgb = _rgb_disk((16, 16))
+    w_cnn = np.full((16, 16), 1.0, dtype=np.float32)
+    result = CudaBackend(device="cpu").solve(rgb, w_cnn, _params())
+    assert result.z_star.shape == (16, 16)
+    assert np.isfinite(result.z_star).all()
