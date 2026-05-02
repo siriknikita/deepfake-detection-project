@@ -127,7 +127,33 @@ This installs `rustup`, `uv`, builds the Rust extension into `.venv`, probes `to
 
 `download-FaceForensics++.py` is the script the FF++ team emails you after EULA acceptance — it is account-keyed, we cannot bundle it. The script wraps it with sensible defaults (real videos, all four manipulation methods, pixel-level masks) and then automatically calls `scripts/extract_frames.py` to convert videos → per-video frame folders. Celeb-DF requires a Google-Form approval; once you have the archive, point `--celeb-archive` at it.
 
-### 3. Forensic check on a small slice (always do this first)
+### 3. Phase 1 — quick classifier (recommended starting point)
+
+For a defendable AUROC number in **~2 hours** instead of 25, run only the heuristic-pipeline + Gradient Boosting classifier — no CNN training. This is the recommended first run on the cluster: cheap, defendable, lower-risk for the diploma timeline.
+
+```bash
+./scripts/continue.sh -- python scripts/quick_classifier.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --runs-dir runs/quick_phase1 \
+    --device cuda
+```
+
+Outputs land in `runs/quick_phase1/`:
+- `features.csv` — full impact-map feature matrix (24 columns + label + path).
+- `classifier.pkl` — trained sklearn pipeline (StandardScaler + GBC).
+- `report.json` — AUROC, accuracy, top features by importance.
+
+The script prints a decision rubric at the end:
+
+| AUROC | Interpretation | Action |
+|---|---|---|
+| ≥ 0.85 | Strong baseline; the heuristic + classifier alone is defendable. | Phase 2 (CNN training) is an upgrade, not a prerequisite — optional. |
+| ~ 0.70 | Reasonable but not great. | CNN training likely helps; consider Phase 2 if you have cluster time. |
+| ≤ 0.55 | Near chance. | The math + heuristic does not separate this dataset. Revisit assumptions before committing to CNN training. |
+
+**Frame format and resolution.** `extract_frames.py` writes PNG by default (lossless, sharper than JPG — relevant for the structural-tensor stage and Lambertian gradient transfer). The default `--image-size 256` matches the FF++ leaderboard convention. Both are configurable but only change them with cause; consistency across `quick_classifier`, `pivot_study`, and any later inference run is what makes results comparable.
+
+### 4. Forensic check on a small slice (always do this first)
 
 Before committing to a multi-day training run, verify the whole stack on a tiny slice — 1 frame per video, 128² resolution, 3 epochs:
 
@@ -141,18 +167,28 @@ python scripts/pivot_study.py \
 
 This trains every component (pure-CNN, trust-map CNN, classifier) on ~5000 frames in roughly 15 minutes on a single 4090. It exists to catch *plumbing* failures (out-of-memory, dataset path wrong, CUDA OOM under the chosen batch size) — **not to produce defendable numbers**. The AUROCs from this run are noisy because of the small dataset; that is expected.
 
-### 4. Full training and the pivot study
+### 5. Phase 2 — full pivot study (optional)
 
-Once the smoke run finishes cleanly, run the real comparison:
+Only run this *after* you have the Phase-1 classifier number in hand and you've decided the framework deserves the cluster time. This stage trains both CNNs (~7 hours combined) and re-runs feature extraction with the trained trust map (~12 hours), so plan for ~25 hours total on a single GPU node.
 
 ```bash
-python scripts/pivot_study.py \
+./scripts/continue.sh -- python scripts/pivot_study.py \
     --data-root /scratch/$USER/data/FaceForensics++ \
     --max-frames-per-video 30 --image-size 256 \
     --epochs 30 --batch-size 32 --device cuda \
     --runs-dir runs/pivot_full \
     --output runs/pivot_full/report.json
 ```
+
+`--baselines` lets you opt into a subset incrementally. Three useful runs:
+
+| Goal | Flag | Time |
+|---|---|---|
+| Just the heuristic + classifier (re-run Phase 1) | `--baselines heuristic` | ~12 h |
+| Heuristic + pure-CNN baseline (skip trust-map CNN) | `--baselines pure-cnn,heuristic` | ~15 h |
+| Everything (default) | `--baselines all` (or omit) | ~25 h |
+
+The legacy `--skip-trained-cnn` flag still works (equivalent to `--baselines pure-cnn,heuristic`).
 
 This trains:
 
@@ -183,7 +219,7 @@ Concrete rough timings on a single RTX 4090 with FF++ c23 at 256² and 30 frames
 
 This is sequential; on a multi-GPU cluster the two CNN trainings run in parallel and the feature-extraction step parallelizes trivially across GPUs (run with `CUDA_VISIBLE_DEVICES=0,1,...` per node).
 
-### 5. Surviving outages and not having to babysit the script
+### 6. Surviving outages and not having to babysit the script
 
 The Ukrainian power-grid context makes mid-training crashes a real concern. Every long-running step is **crash-resumable by design** — the same command works as both the first run and every restart.
 
@@ -266,7 +302,7 @@ python scripts/pivot_study.py \
 
 Submit with `sbatch script.sh`. After preemption SLURM relaunches the script automatically and resume kicks in on its own.
 
-### 6. Export and reuse the trained model
+### 7. Export and reuse the trained model
 
 The trust-map weights live at `runs/pivot_full/trust_map/<timestamp>/best.pt`. Use them anywhere:
 
