@@ -162,14 +162,74 @@ class _NullCtx:
         return None
 
 
+def _save_full_checkpoint(
+    path: Path,
+    *,
+    model: Any,
+    optimizer: Any,
+    scheduler: Any,
+    scaler: Any | None,
+    epoch: int,
+    best_val_loss: float,
+    history: list[dict[str, float]],
+) -> None:
+    """Resumable checkpoint with optimizer + scheduler + scaler state."""
+    torch = _torch()
+    payload = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict() if scaler is not None else None,
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "history": history,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
+
+
+def _maybe_resume(
+    resume_dir: Path | None,
+    *,
+    model: Any,
+    optimizer: Any,
+    scheduler: Any,
+    scaler: Any | None,
+) -> tuple[int, float, list[dict[str, float]]]:
+    torch = _torch()
+    if resume_dir is None:
+        return 0, float("inf"), []
+    ckpt_path = resume_dir / "checkpoint.pt"
+    if not ckpt_path.exists():
+        print(f"[baseline-cnn] no checkpoint at {ckpt_path} — starting fresh")
+        return 0, float("inf"), []
+    print(f"[baseline-cnn] resuming from {ckpt_path}")
+    payload = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    model.load_state_dict(payload["model"])
+    optimizer.load_state_dict(payload["optimizer"])
+    scheduler.load_state_dict(payload["scheduler"])
+    if scaler is not None and payload.get("scaler") is not None:
+        scaler.load_state_dict(payload["scaler"])
+    return (
+        int(payload["epoch"]) + 1,
+        float(payload["best_val_loss"]),
+        list(payload.get("history", [])),
+    )
+
+
 def train_baseline_cnn(
     train_dataset: Any,
     val_dataset: Any | None,
     config: BaselineConfig | None = None,
     *,
     pretrained: bool = True,
+    resume_dir: Path | None = None,
 ) -> dict[str, list[dict[str, float]] | str]:
-    """Train the pure-CNN baseline. Same artifact layout as ``train_cnn``."""
+    """Train the pure-CNN baseline with crash-resumable checkpoints.
+
+    See :func:`forge_detect.train.train_cnn` for the resume semantics —
+    this function uses the same conventions.
+    """
     torch = _torch()
     from torch.utils.data import DataLoader
 
@@ -177,7 +237,9 @@ def train_baseline_cnn(
     device = _select_device(config.device)
     print(f"[baseline-cnn] training on device={device} for {config.epochs} epochs")
 
-    model = build_baseline_classifier(pretrained=pretrained).to(device)
+    model = build_baseline_classifier(
+        pretrained=(pretrained and resume_dir is None),
+    ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -185,6 +247,14 @@ def train_baseline_cnn(
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
     scaler = torch.amp.GradScaler() if (config.mixed_precision and device == "cuda") else None
+
+    start_epoch, best_val_loss, history = _maybe_resume(
+        resume_dir,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+    )
 
     train_loader = DataLoader(
         train_dataset,
@@ -206,14 +276,19 @@ def train_baseline_cnn(
         else None
     )
 
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    run_dir = config.checkpoint_dir / stamp
+    if resume_dir is not None:
+        run_dir = resume_dir
+    else:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        run_dir = config.checkpoint_dir / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "config.json").write_text(json.dumps(asdict(config), default=str, indent=2))
 
-    history: list[dict[str, float]] = []
-    best_val_loss = float("inf")
-    for epoch in range(config.epochs):
+    if start_epoch >= config.epochs:
+        print(f"[baseline-cnn] resumed run already at epoch {start_epoch} >= {config.epochs}")
+        return {"history": history, "run_dir": str(run_dir)}
+
+    for epoch in range(start_epoch, config.epochs):
         t0 = time.time()
         train_metrics = _epoch_pass(
             model,
@@ -248,6 +323,16 @@ def train_baseline_cnn(
         history.append(log)
         print(f"[baseline-cnn] epoch {epoch}: " + " ".join(f"{k}={v:.4f}" for k, v in log.items()))
         (run_dir / "history.json").write_text(json.dumps(history, indent=2))
+        _save_full_checkpoint(
+            run_dir / "checkpoint.pt",
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            epoch=epoch,
+            best_val_loss=best_val_loss,
+            history=history,
+        )
 
     return {"history": history, "run_dir": str(run_dir)}
 

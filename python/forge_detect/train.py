@@ -175,25 +175,95 @@ class _NullCtx:
         return None
 
 
+def _save_full_checkpoint(
+    path: Path,
+    *,
+    model: Any,
+    optimizer: Any,
+    scheduler: Any,
+    scaler: Any | None,
+    epoch: int,
+    best_val_loss: float,
+    history: list[dict[str, float]],
+) -> None:
+    """Save model + optimizer + scheduler + scaler + epoch into one .pt file.
+
+    This is the *resumable* checkpoint. ``best.pt`` and ``last.pt`` (model
+    weights only) are written separately by the trainer for portability —
+    inference code only needs the weights, not the optimizer state.
+    """
+    torch = _torch()
+    payload = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict() if scaler is not None else None,
+        "epoch": epoch,
+        "best_val_loss": best_val_loss,
+        "history": history,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(payload, path)
+
+
+def _maybe_resume(
+    resume_dir: Path | None,
+    *,
+    model: Any,
+    optimizer: Any,
+    scheduler: Any,
+    scaler: Any | None,
+) -> tuple[int, float, list[dict[str, float]]]:
+    """Restore training state from ``<resume_dir>/checkpoint.pt`` if present.
+
+    Returns ``(start_epoch, best_val_loss, history)``.
+    """
+    torch = _torch()
+    if resume_dir is None:
+        return 0, float("inf"), []
+    ckpt_path = resume_dir / "checkpoint.pt"
+    if not ckpt_path.exists():
+        print(f"no checkpoint found at {ckpt_path} — starting fresh")
+        return 0, float("inf"), []
+    print(f"resuming from {ckpt_path}")
+    payload = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    model.load_state_dict(payload["model"])
+    optimizer.load_state_dict(payload["optimizer"])
+    scheduler.load_state_dict(payload["scheduler"])
+    if scaler is not None and payload.get("scaler") is not None:
+        scaler.load_state_dict(payload["scaler"])
+    return (
+        int(payload["epoch"]) + 1,
+        float(payload["best_val_loss"]),
+        list(payload.get("history", [])),
+    )
+
+
 def train_cnn(
     train_dataset: Any,
     val_dataset: Any | None,
     config: TrainingConfig | None = None,
     *,
     pretrained: bool = True,
-) -> dict[str, list[dict[str, float]]]:
-    """Train the trust-map CNN.
+    resume_dir: Path | None = None,
+) -> dict[str, list[dict[str, float]] | str]:
+    """Train the trust-map CNN with crash-resumable checkpoints.
 
     Args:
         train_dataset: A torch Dataset returning ``(image, label[, mask])``.
         val_dataset: Optional validation dataset of the same shape.
         config: Training hyperparameters.
         pretrained: Initialize the EfficientNet-B0 backbone with ImageNet
-            weights (recommended unless you've already trained from scratch).
+            weights. Ignored when ``resume_dir`` is supplied (the resumed
+            weights take precedence).
+        resume_dir: If given, look for ``<resume_dir>/checkpoint.pt`` and
+            restore model + optimizer + scheduler + scaler state from it.
+            Training continues from the saved epoch + 1. The same run
+            directory is reused, not a new timestamped one — checkpoints
+            and history.json append in place.
 
     Returns:
-        ``{"history": [{"epoch": int, "train_loss": float, ...}, ...]}``.
-        Best checkpoint is also written to ``<checkpoint_dir>/best.pt``.
+        ``{"history": [...], "run_dir": str}``.
     """
     torch = _torch()
     from torch.utils.data import DataLoader
@@ -204,7 +274,9 @@ def train_cnn(
     device = _select_device(config.device)
     print(f"training on device={device} for {config.epochs} epochs")
 
-    model = build_chromatic_efficientnet(pretrained=pretrained).to(device)
+    model = build_chromatic_efficientnet(
+        pretrained=(pretrained and resume_dir is None),
+    ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=config.learning_rate,
@@ -212,6 +284,14 @@ def train_cnn(
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
     scaler = torch.amp.GradScaler() if (config.mixed_precision and device == "cuda") else None
+
+    start_epoch, best_val_loss, history = _maybe_resume(
+        resume_dir,
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+    )
 
     train_loader = DataLoader(
         train_dataset,
@@ -233,13 +313,15 @@ def train_cnn(
         else None
     )
 
-    run_dir = _ensure_run_dir(config.checkpoint_dir)
+    run_dir = resume_dir if resume_dir is not None else _ensure_run_dir(config.checkpoint_dir)
     print(f"checkpoints -> {run_dir}")
     (run_dir / "config.json").write_text(json.dumps(asdict(config), default=str, indent=2))
 
-    history: list[dict[str, float]] = []
-    best_val_loss = float("inf")
-    for epoch in range(config.epochs):
+    if start_epoch >= config.epochs:
+        print(f"resumed run already at epoch {start_epoch} >= {config.epochs}; nothing to do")
+        return {"history": history, "run_dir": str(run_dir)}  # type: ignore[dict-item]
+
+    for epoch in range(start_epoch, config.epochs):
         t0 = time.time()
         train_metrics = _epoch_pass(
             model,
@@ -274,6 +356,17 @@ def train_cnn(
         history.append(log)
         print(f"epoch {epoch}: " + " ".join(f"{k}={v:.4f}" for k, v in log.items()))
         (run_dir / "history.json").write_text(json.dumps(history, indent=2))
+        # Resumable checkpoint with the full optimizer / scheduler state.
+        _save_full_checkpoint(
+            run_dir / "checkpoint.pt",
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            epoch=epoch,
+            best_val_loss=best_val_loss,
+            history=history,
+        )
 
     return {"history": history, "run_dir": str(run_dir)}  # type: ignore[dict-item]
 

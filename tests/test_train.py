@@ -163,3 +163,74 @@ def test_train_cnn_loss_is_finite_each_epoch() -> None:
         for entry in out["history"]:
             assert np.isfinite(entry["train_loss"])
             assert entry["train_loss"] > 0  # BCE on a real binary problem is positive
+
+
+def test_train_cnn_resumes_from_checkpoint() -> None:
+    """Training stopped mid-run should resume from the last completed epoch."""
+    pytest.importorskip("torch")
+
+    from forge_detect.train import TrainingConfig, train_cnn
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _make_tiny_dataset(root)
+        train_ds = ImageFolderDataset(root / "real", root / "fake", target_size=(64, 64))
+        # First run: 1 epoch.
+        cfg1 = TrainingConfig(
+            epochs=1,
+            batch_size=2,
+            num_workers=0,
+            device="cpu",
+            mixed_precision=False,
+            log_every=0,
+            checkpoint_dir=root / "runs",
+        )
+        out1 = train_cnn(train_ds, None, cfg1, pretrained=False)
+        run_dir = Path(out1["run_dir"])
+        assert (run_dir / "checkpoint.pt").exists()
+        assert len(out1["history"]) == 1
+
+        # Second run: same run_dir, increased epochs to 3 — should run only
+        # epochs 1 and 2 (epoch 0 was already completed).
+        cfg2 = TrainingConfig(
+            epochs=3,
+            batch_size=2,
+            num_workers=0,
+            device="cpu",
+            mixed_precision=False,
+            log_every=0,
+            checkpoint_dir=root / "runs",
+        )
+        out2 = train_cnn(train_ds, None, cfg2, pretrained=False, resume_dir=run_dir)
+        # History from the resumed run should contain all 3 epochs (1 from
+        # the original + 2 added) and the run_dir is the same.
+        assert Path(out2["run_dir"]) == run_dir
+        epochs_in_history = [e["epoch"] for e in out2["history"]]
+        assert epochs_in_history == [0.0, 1.0, 2.0]
+
+
+def test_train_cnn_resume_already_complete() -> None:
+    """Resuming a run that already hit `epochs` completes immediately."""
+    pytest.importorskip("torch")
+
+    from forge_detect.train import TrainingConfig, train_cnn
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _make_tiny_dataset(root)
+        train_ds = ImageFolderDataset(root / "real", root / "fake", target_size=(64, 64))
+        cfg = TrainingConfig(
+            epochs=1,
+            batch_size=2,
+            num_workers=0,
+            device="cpu",
+            mixed_precision=False,
+            log_every=0,
+            checkpoint_dir=root / "runs",
+        )
+        out1 = train_cnn(train_ds, None, cfg, pretrained=False)
+        run_dir = Path(out1["run_dir"])
+        # Resume with the same epoch count: nothing to do.
+        out2 = train_cnn(train_ds, None, cfg, pretrained=False, resume_dir=run_dir)
+        assert Path(out2["run_dir"]) == run_dir
+        assert len(out2["history"]) == 1

@@ -217,6 +217,17 @@ def _add_train_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
     p.add_argument("--checkpoint-dir", type=Path, default=Path("runs"))
     p.add_argument("--no-pretrained", action="store_true", help="Skip ImageNet weights.")
     p.add_argument("--num-workers", type=int, default=4)
+    p.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        metavar="RUN_DIR",
+        help=(
+            "Resume training from RUN_DIR/checkpoint.pt. The model, optimizer, "
+            "scheduler, scaler, and epoch are all restored. Use this after a "
+            "crash / preemption to pick up where the run left off."
+        ),
+    )
 
 
 def _run_train(args: argparse.Namespace) -> int:
@@ -242,7 +253,13 @@ def _run_train(args: argparse.Namespace) -> int:
         checkpoint_dir=args.checkpoint_dir,
         num_workers=args.num_workers,
     )
-    out = train_cnn(train_ds, val_ds, cfg, pretrained=not args.no_pretrained)
+    out = train_cnn(
+        train_ds,
+        val_ds,
+        cfg,
+        pretrained=not args.no_pretrained,
+        resume_dir=args.resume,
+    )
     print(f"Training complete. Run dir: {out['run_dir']}")
     return 0
 
