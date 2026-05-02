@@ -113,3 +113,4 @@ Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
 // ---------- Sections ----------
 
 #include "sections/01-introduction.typ"
+#include "sections/02-phase1-luminance.typ"
