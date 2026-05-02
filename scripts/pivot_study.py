@@ -71,7 +71,11 @@ def _run_baseline_cnn(
     test_idx: list[int],
     args: argparse.Namespace,
 ) -> dict[str, float]:
-    """Train EfficientNet-B0 directly on (image, label)."""
+    """Train EfficientNet-B0 directly on (image, label).
+
+    Crash-resumable: the run dir is a fixed name (``runs_dir/baseline_run``),
+    so re-running picks up from the saved checkpoint.pt.
+    """
     from forge_detect.baseline_cnn import (
         BaselineConfig,
         build_baseline_classifier,
@@ -83,15 +87,23 @@ def _run_baseline_cnn(
     train_ds = _stratified_subset(dataset, train_idx)
     val_ds = _stratified_subset(dataset, val_idx)
     test_ds = _stratified_subset(dataset, test_idx)
+    run_dir = args.runs_dir / "baseline_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
     cfg = BaselineConfig(
         epochs=args.epochs,
         batch_size=args.batch_size,
         device=args.device,
         num_workers=args.num_workers,
-        checkpoint_dir=args.runs_dir / "baseline",
+        checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
     )
     t0 = time.time()
-    out = train_baseline_cnn(train_ds, val_ds, cfg, pretrained=not args.no_pretrained)
+    out = train_baseline_cnn(
+        train_ds,
+        val_ds,
+        cfg,
+        pretrained=not args.no_pretrained,
+        resume_dir=run_dir,
+    )
     train_seconds = time.time() - t0
     # Reload best.pt and evaluate on test split.
     model = build_baseline_classifier(pretrained=False)
@@ -245,6 +257,11 @@ def main() -> int:
     print(f"split: train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
     report: dict[str, Any] = {"baselines": {}, "args": vars(args)}
+    partial_path = args.runs_dir / "report.partial.json"
+
+    def _flush_partial() -> None:
+        partial_path.parent.mkdir(parents=True, exist_ok=True)
+        partial_path.write_text(json.dumps(report, indent=2, default=str))
 
     # Baseline 1: pure CNN end-to-end.
     print("\n--- Baseline 1: pure CNN ---")
@@ -255,6 +272,7 @@ def main() -> int:
         test_idx,
         args,
     )
+    _flush_partial()
 
     # Baseline 2: pipeline + heuristic trust map.
     print("\n--- Baseline 2: pipeline (heuristic W_cnn) ---")
@@ -267,22 +285,31 @@ def main() -> int:
         cnn_checkpoint=None,
         label="heuristic",
     )
+    _flush_partial()
 
     # Baseline 3: train ChromaticEfficientNet, then pipeline + trained trust map.
     if not args.skip_trained_cnn:
         print("\n--- Training ChromaticEfficientNet for trust map ---")
         from forge_detect.train import TrainingConfig, train_cnn
 
+        trust_map_dir = args.runs_dir / "trust_map_run"
+        trust_map_dir.mkdir(parents=True, exist_ok=True)
         cfg = TrainingConfig(
             epochs=args.epochs,
             batch_size=args.batch_size,
             device=args.device,
             num_workers=args.num_workers,
-            checkpoint_dir=args.runs_dir / "trust_map",
+            checkpoint_dir=trust_map_dir.parent,  # ignored — resume_dir wins
         )
         train_ds = _stratified_subset(dataset, train_idx)
         val_ds = _stratified_subset(dataset, val_idx)
-        out = train_cnn(train_ds, val_ds, cfg, pretrained=not args.no_pretrained)
+        out = train_cnn(
+            train_ds,
+            val_ds,
+            cfg,
+            pretrained=not args.no_pretrained,
+            resume_dir=trust_map_dir,
+        )
         ckpt = Path(out["run_dir"]) / "best.pt"
 
         print("\n--- Baseline 3: pipeline (trained CNN W_cnn) ---")
@@ -295,6 +322,7 @@ def main() -> int:
             cnn_checkpoint=ckpt,
             label="trained_cnn",
         )
+        _flush_partial()
 
     pretty = _format_report(report)
     print("\n" + pretty)
