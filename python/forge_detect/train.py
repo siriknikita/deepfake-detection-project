@@ -103,11 +103,7 @@ def _collate(batch: list[Any]) -> tuple[Any, Any, Any | None]:
     labels = torch.tensor([b[1] for b in batch], dtype=torch.long)
     masks: Any | None = None
     # FaceForensicsAdapter returns (image, label, mask?); ImageFolderDataset returns (image, label).
-    if (
-        len(batch[0]) >= 3
-        and batch[0][2] is not None
-        and all(b[2] is not None for b in batch)
-    ):
+    if len(batch[0]) >= 3 and batch[0][2] is not None and all(b[2] is not None for b in batch):
         masks = torch.stack([b[2] for b in batch], dim=0)
     return images, labels, masks
 
