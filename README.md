@@ -183,7 +183,89 @@ Concrete rough timings on a single RTX 4090 with FF++ c23 at 256² and 30 frames
 
 This is sequential; on a multi-GPU cluster the two CNN trainings run in parallel and the feature-extraction step parallelizes trivially across GPUs (run with `CUDA_VISIBLE_DEVICES=0,1,...` per node).
 
-### 5. Export and reuse the trained model
+### 5. Surviving outages and not having to babysit the script
+
+The Ukrainian power-grid context makes mid-training crashes a real concern. Every long-running step is **crash-resumable by design** — the same command works as both the first run and every restart.
+
+**What is saved when:**
+
+| Step | Saved artifact | Resume granularity |
+|---|---|---|
+| Pure-CNN training | `runs_dir/baseline_run/checkpoint.pt` | One epoch |
+| Trust-map CNN training | `runs_dir/trust_map_run/checkpoint.pt` | One epoch |
+| Pipeline feature extraction | `runs_dir/features-*.csv` | `save_every=100` images |
+| Pivot-study stage progression | `runs_dir/report.partial.json` | One baseline |
+
+`checkpoint.pt` contains the full optimizer + LR scheduler + AMP scaler state, so resume is **bit-identical** to a never-crashed run — not just "load the weights and start a fresh optimizer", which would lose Adam's momentum and the cosine schedule's position.
+
+**Recommended way to run on the cluster (no babysitting):**
+
+`tmux` keeps the process alive after you SSH out, plus stdout-redirection writes a tail-able log file plus a wrapper loop auto-restarts on any non-zero exit:
+
+```bash
+tmux new -s forge
+
+# Inside the tmux session:
+mkdir -p logs
+until python scripts/pivot_study.py \
+        --data-root /scratch/$USER/data/FaceForensics++ \
+        --max-frames-per-video 30 --image-size 256 \
+        --epochs 30 --batch-size 32 --device cuda \
+        --runs-dir runs/pivot_full \
+        --output runs/pivot_full/report.json \
+        > logs/pivot_$(date +%Y%m%d-%H%M%S).log 2>&1; do
+    echo "[$(date)] crash detected, sleeping 60s and resuming ..." \
+        >> logs/restart.log
+    sleep 60
+done
+
+# Detach with Ctrl-b d. SSH out. Come back hours later:
+tmux attach -t forge
+```
+
+The `until ... do ... done` loop **re-runs the same command every time it crashes**. Because the pivot study is idempotent, the second invocation skips already-finished stages and resumes the in-flight one from its last checkpoint. The 60-second sleep gives the GPU time to recover from a transient driver hang or power blip.
+
+**Monitoring without attaching:**
+
+```bash
+# From any other shell on the same node:
+tail -f logs/pivot_*.log
+
+# Watch checkpoint timestamps:
+watch -n 30 'ls -lt runs/pivot_full/*/last.pt runs/pivot_full/*.csv 2>/dev/null'
+
+# Read the partial report after each completed baseline:
+cat runs/pivot_full/report.partial.json | jq '.baselines'
+```
+
+**SLURM clusters:**
+
+If your cluster runs SLURM, the same `until ... do ... done` pattern is unnecessary — submit the job with `--requeue` and SLURM relaunches the same script after preemption. Example sbatch:
+
+```bash
+#!/usr/bin/env bash
+#SBATCH --job-name=forge-pivot
+#SBATCH --gpus=1
+#SBATCH --time=48:00:00
+#SBATCH --requeue
+#SBATCH --signal=B:SIGTERM@60
+#SBATCH --output=logs/pivot_%j.log
+
+source $HOME/.cargo/env
+cd $SLURM_SUBMIT_DIR
+source .venv/bin/activate
+
+python scripts/pivot_study.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --max-frames-per-video 30 --image-size 256 \
+    --epochs 30 --batch-size 32 --device cuda \
+    --runs-dir runs/pivot_full \
+    --output runs/pivot_full/report.json
+```
+
+Submit with `sbatch script.sh`. After preemption SLURM relaunches the script automatically and resume kicks in on its own.
+
+### 6. Export and reuse the trained model
 
 The trust-map weights live at `runs/pivot_full/trust_map/<timestamp>/best.pt`. Use them anywhere:
 
