@@ -200,30 +200,31 @@ The Ukrainian power-grid context makes mid-training crashes a real concern. Ever
 
 **Recommended way to run on the cluster (no babysitting):**
 
-`tmux` keeps the process alive after you SSH out, plus stdout-redirection writes a tail-able log file plus a wrapper loop auto-restarts on any non-zero exit:
+The repo ships [`scripts/continue.sh`](scripts/continue.sh) — an auto-restart wrapper that handles the loop, log redirection, and Ctrl-C semantics for you. Run any command through it; on a crash it sleeps for the cooldown and re-invokes the same command. Combined with `tmux` (keeps the process alive across SSH disconnects):
 
 ```bash
 tmux new -s forge
 
 # Inside the tmux session:
-mkdir -p logs
-until python scripts/pivot_study.py \
-        --data-root /scratch/$USER/data/FaceForensics++ \
-        --max-frames-per-video 30 --image-size 256 \
-        --epochs 30 --batch-size 32 --device cuda \
-        --runs-dir runs/pivot_full \
-        --output runs/pivot_full/report.json \
-        > logs/pivot_$(date +%Y%m%d-%H%M%S).log 2>&1; do
-    echo "[$(date)] crash detected, sleeping 60s and resuming ..." \
-        >> logs/restart.log
-    sleep 60
-done
+./scripts/continue.sh -- python scripts/pivot_study.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --max-frames-per-video 30 --image-size 256 \
+    --epochs 30 --batch-size 32 --device cuda \
+    --runs-dir runs/pivot_full \
+    --output runs/pivot_full/report.json
 
 # Detach with Ctrl-b d. SSH out. Come back hours later:
 tmux attach -t forge
 ```
 
-The `until ... do ... done` loop **re-runs the same command every time it crashes**. Because the pivot study is idempotent, the second invocation skips already-finished stages and resumes the in-flight one from its last checkpoint. The 60-second sleep gives the GPU time to recover from a transient driver hang or power blip.
+`continue.sh` re-runs the same command every time it crashes. Because the pivot study is idempotent, the second invocation skips already-finished stages and resumes the in-flight one from its last checkpoint. The cooldown (60 s by default) gives the GPU time to recover from a transient driver hang or power blip. Useful flags:
+
+- `--cooldown SECONDS`  — adjust the inter-restart sleep.
+- `--max-restarts N`    — stop after N restarts so a permanently-broken command doesn't loop forever.
+- `--tag NAME`          — log-file prefix; defaults to the command basename.
+- `--log-dir PATH`      — where to write `<tag>-<timestamp>.log` and `restart-<tag>.log`.
+
+Ctrl-C (or SIGTERM from a job scheduler) **stops the loop** rather than restarting; rc 130 / 143 are treated as deliberate interruptions, not crashes. So if you want to abort the run, two presses of Ctrl-C in tmux do it cleanly.
 
 **Monitoring without attaching:**
 
