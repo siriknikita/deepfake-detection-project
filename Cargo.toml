@@ -11,7 +11,7 @@ name = "hyperplane_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-pyo3 = { version = "0.22", features = ["extension-module"] }
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 numpy = "0.22"
 ndarray = { version = "0.16", features = ["rayon"] }
 rayon = "1.10"
@@ -24,9 +24,25 @@ opt-level = 3
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
+# Numerical-code allowances: these lints either fight ndarray idioms or
+# express stylistic preferences that hurt math readability without buying
+# real safety. Hard-deny lints (correctness, suspicious, perf) remain at
+# default level.
 cast_precision_loss = "allow"
 cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
 cast_sign_loss = "allow"
 similar_names = "allow"
 many_single_char_names = "allow"
 module_name_repetitions = "allow"
+doc_markdown = "allow"
+missing_panics_doc = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+float_cmp = "allow"
+explicit_iter_loop = "allow"
+suboptimal_flops = "allow"
+range_plus_one = "allow"
+needless_pass_by_value = "allow"
+inline_always = "allow"
