@@ -4,6 +4,7 @@
 pub mod energy;
 pub mod hyperplane;
 pub mod luminance;
+pub mod pde;
 pub mod scharr;
 pub mod stencils;
 pub mod tensor;
