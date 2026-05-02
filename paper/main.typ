@@ -120,3 +120,4 @@ Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
 #include "sections/06-phase5-pde.typ"
 #include "sections/07-phase6-impact.typ"
 #include "sections/08-algorithm.typ"
+#include "sections/09-implementation.typ"
