@@ -101,6 +101,104 @@ This works for **any** real/fake source — synthetic faces from FFHQ vs StyleGA
 
 The pipeline is **runnable today without any training**. The default trust map is a deterministic chromatic-residual heuristic (see `python/forge_detect/trust_map.py`). Run `forge-detect detect <image>` on your MacBook with no GPU, no dataset, no CNN weights — you get a working impact map and feature vector. The trained CNN is an upgrade for stronger separation, not a prerequisite.
 
+## Running on the GPU cluster
+
+The cluster workflow has four stages. Each stage is a single shell command and the previous stage's outputs are inputs to the next.
+
+### 1. Bootstrap a fresh node
+
+After `ssh`-ing into a cluster node and `git clone`-ing the repo:
+
+```bash
+./scripts/cluster_bootstrap.sh
+```
+
+This installs `rustup`, `uv`, builds the Rust extension into `.venv`, probes `torch.cuda.is_available()`, and runs both test suites. **Idempotent** — safe to re-run on partial failures. If `ffmpeg` is missing the script flags it but does not abort; `module load ffmpeg` or `apt install ffmpeg` covers it on most clusters.
+
+### 2. Download datasets
+
+```bash
+./scripts/prepare_data.sh \
+    --root /scratch/$USER/data \
+    --ff-downloader ~/download-FaceForensics++.py \
+    --celeb-archive ~/Celeb-DF-v2.zip \
+    --compression c23 --fps 5
+```
+
+`download-FaceForensics++.py` is the script the FF++ team emails you after EULA acceptance — it is account-keyed, we cannot bundle it. The script wraps it with sensible defaults (real videos, all four manipulation methods, pixel-level masks) and then automatically calls `scripts/extract_frames.py` to convert videos → per-video frame folders. Celeb-DF requires a Google-Form approval; once you have the archive, point `--celeb-archive` at it.
+
+### 3. Forensic check on a small slice (always do this first)
+
+Before committing to a multi-day training run, verify the whole stack on a tiny slice — 1 frame per video, 128² resolution, 3 epochs:
+
+```bash
+python scripts/pivot_study.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --max-frames-per-video 1 --image-size 128 \
+    --epochs 3 --batch-size 16 --device cuda \
+    --runs-dir runs/pivot_smoke
+```
+
+This trains every component (pure-CNN, trust-map CNN, classifier) on ~5000 frames in roughly 15 minutes on a single 4090. It exists to catch *plumbing* failures (out-of-memory, dataset path wrong, CUDA OOM under the chosen batch size) — **not to produce defendable numbers**. The AUROCs from this run are noisy because of the small dataset; that is expected.
+
+### 4. Full training and the pivot study
+
+Once the smoke run finishes cleanly, run the real comparison:
+
+```bash
+python scripts/pivot_study.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --max-frames-per-video 30 --image-size 256 \
+    --epochs 30 --batch-size 32 --device cuda \
+    --runs-dir runs/pivot_full \
+    --output runs/pivot_full/report.json
+```
+
+This trains:
+
+1. **Pure CNN** — torchvision EfficientNet-B0 directly on `(image, label)` for binary classification.
+2. **Pipeline + heuristic W_cnn** — math kernels with the deterministic chromatic-residual trust map → 24-D features → Gradient Boosting Classifier.
+3. **Pipeline + trained CNN W_cnn** — same as 2, but `W_cnn` comes from a trained `ChromaticEfficientNet`.
+
+All three use the same train / val / test stratified split and the same optimizer / scheduler / loss family. The script writes a JSON report with AUROC, accuracy, top feature importances, and approximate training time per baseline.
+
+### Pivot decision rubric
+
+| Outcome | What it means | What to do |
+|---|---|---|
+| Pure CNN > Full pipeline by **≥ 0.03 AUROC** | A learned classifier alone separates real / fake at least as well as the physics framework | Pivot. Keep the trained CNN, drop the math pipeline, defend the engineering work as a learned-classifier project |
+| Full pipeline > Pure CNN by **≥ 0.02 AUROC** | The physics signal is real and the framework adds explanatory power | Defend the framework as designed; the math is the contribution |
+| Heuristic ≈ Trained CNN, both ≈ Pure CNN | The pipeline carries useful signal but the trained `W_cnn` does not improve over the deterministic heuristic | Drop the CNN training step from the deliverable, keep the deterministic pipeline as a faster, simpler alternative |
+| All three within ≈ 0.01 AUROC of each other | No method has signal on this split | Revisit assumptions: dataset balance, image resolution, pipeline parameters; or accept that this dataset is too easy / hard to discriminate methods |
+
+Concrete rough timings on a single RTX 4090 with FF++ c23 at 256² and 30 frames per video (~120k frames):
+
+| Step | Time |
+|---|---|
+| Frame extraction (all methods + masks at fps=5) | ~6 h |
+| Pure-CNN training, 30 epochs | ~3 h |
+| Trust-map CNN training, 30 epochs | ~4 h |
+| Pipeline feature extraction over the dataset, both runs | ~12 h |
+| Total pivot study | ~25 h on one GPU |
+
+This is sequential; on a multi-GPU cluster the two CNN trainings run in parallel and the feature-extraction step parallelizes trivially across GPUs (run with `CUDA_VISIBLE_DEVICES=0,1,...` per node).
+
+### 5. Export and reuse the trained model
+
+The trust-map weights live at `runs/pivot_full/trust_map/<timestamp>/best.pt`. Use them anywhere:
+
+```bash
+forge-detect detect new_image.jpg \
+    --cnn-checkpoint runs/pivot_full/trust_map/<timestamp>/best.pt \
+    --device cuda --visualize panel.png
+
+forge-detect eval --data-root /any/other/dataset \
+    --cnn-checkpoint runs/pivot_full/trust_map/<timestamp>/best.pt \
+    --device cuda
+```
+
+The classifier pickle (`runs/pivot_full/features-*.csv` → `train_classifier()`) is similarly portable. Both files are self-contained — copy them off the cluster, ship them with your application, and the inference path on a CPU-only laptop works the same as on the cluster.
+
 ## Tests
 
 ```bash
