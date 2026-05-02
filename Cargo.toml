@@ -54,6 +54,7 @@ range_plus_one = "allow"
 needless_pass_by_value = "allow"
 inline_always = "allow"
 too_many_arguments = "allow"
+too_many_lines = "allow"
 # PyO3 macro expansions emit T::into(x) on error paths even when T is the
 # same type; allow at the crate level so clippy stays clean under the
 # `python-extension` feature.

@@ -72,6 +72,9 @@ ignore = [
     "N803",         # math variables (e.g. K, W) keep their math casing
     "N806",         # math variable names in function bodies (Ix, Iy, J...)
     "E741",         # ambiguous l/I/O — these match the math notation
+    "PLC0415",      # lazy imports are intentional for optional deps (torch)
+    "RUF001",       # math notation in docstrings/strings (×, −, etc.)
+    "RUF002",       # ambiguous Greek letters in docstrings — they're math
 ]
 
 [tool.ruff.lint.per-file-ignores]
