@@ -3,6 +3,7 @@
 
 pub mod luminance;
 pub mod scharr;
+pub mod stencils;
 pub mod tensor;
 
 mod util;
