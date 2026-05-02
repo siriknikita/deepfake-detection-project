@@ -74,12 +74,16 @@ def extract_features_over_dataset(
     log_every: int = 25,
     cnn_model: Any | None = None,
     cnn_device: str = "cpu",
+    cache_path: str | Path | None = None,
+    save_every: int = 100,
 ) -> FeatureMatrix:
-    """Run the full pipeline over every record of ``dataset`` and return features.
+    """Run the pipeline over every record of ``dataset`` and return features.
 
-    The dataset must yield ``(image_chw_or_path, label[, mask])`` records;
-    image tensors / numpy arrays are converted to ``(H, W, 3)`` float32
-    before being passed to :func:`forge_detect.pipeline.detect`.
+    Crash-resumable: when ``cache_path`` is given, the function appends to
+    a partial CSV every ``save_every`` records. On restart, already-
+    processed paths are loaded from the cache and skipped, so re-running
+    after an outage continues from the last saved checkpoint instead of
+    starting over.
 
     Args:
         dataset: Iterable / torch Dataset of (image, label[, ...]).
@@ -90,15 +94,38 @@ def extract_features_over_dataset(
         cnn_model: Optional trained ChromaticEfficientNet to compute the
             trust map. If ``None``, the heuristic fallback is used.
         cnn_device: PyTorch device the CNN lives on.
+        cache_path: If given, write progress here every `save_every`
+            records and skip already-processed paths on resume.
+        save_every: Flush cache every this many records.
 
     Returns:
         :class:`FeatureMatrix` with ``(features, labels, paths)``.
     """
+    cache_p = Path(cache_path) if cache_path is not None else None
+
     feats: list[np.ndarray] = []
     labels: list[int] = []
     paths: list[str] = []
+    done_paths: set[str] = set()
+
+    if cache_p is not None and cache_p.exists():
+        existing = FeatureMatrix.load(cache_p)
+        feats = list(existing.features)
+        labels = list(existing.labels.tolist())
+        paths = list(existing.paths)
+        done_paths = set(paths)
+        print(f"  resuming from cache: {len(done_paths)} records already processed")
+
     t0 = time.time()
-    for i in range(len(dataset)):  # type: ignore[arg-type]
+    n = len(dataset)  # type: ignore[arg-type]
+    processed_in_session = 0
+    for i in range(n):
+        # Determine the record's stable path key BEFORE running the pipeline,
+        # so we can short-circuit cached entries without paying for the load.
+        path_key = _record_path_key(dataset, i)
+        if path_key in done_paths:
+            continue
+
         record = dataset[i]
         image = record[0]
         label = record[1]
@@ -112,20 +139,51 @@ def extract_features_over_dataset(
         )
         feats.append(result.features)
         labels.append(int(label))
-        path = getattr(getattr(dataset, "_records", [None])[i], "path", None)
-        if path is None:
-            path = getattr(getattr(dataset, "_records", [None])[i], "image_path", None)
-        paths.append(str(path) if path is not None else f"<idx={i}>")
-        if log_every > 0 and (i + 1) % log_every == 0:
+        paths.append(path_key)
+        done_paths.add(path_key)
+        processed_in_session += 1
+
+        if log_every > 0 and processed_in_session % log_every == 0:
             elapsed = time.time() - t0
-            rate = (i + 1) / elapsed
-            eta = (len(dataset) - (i + 1)) / max(rate, 1e-9)  # type: ignore[arg-type]
-            print(f"  [{i + 1}/{len(dataset)}] {rate:.2f} images/s, ETA {eta:.0f}s")
-    return FeatureMatrix(
-        features=np.stack(feats),
+            rate = processed_in_session / max(elapsed, 1e-9)
+            eta = (n - len(done_paths)) / max(rate, 1e-9)
+            print(
+                f"  [{len(done_paths)}/{n}] {rate:.2f} images/s, ETA {eta:.0f}s",
+            )
+        if cache_p is not None and processed_in_session % save_every == 0:
+            FeatureMatrix(
+                features=np.stack(feats),
+                labels=np.asarray(labels, dtype=np.int64),
+                paths=paths,
+            ).save(cache_p)
+
+    fm = FeatureMatrix(
+        features=np.stack(feats) if feats else np.empty((0, 0), dtype=np.float64),
         labels=np.asarray(labels, dtype=np.int64),
         paths=paths,
     )
+    if cache_p is not None:
+        fm.save(cache_p)
+    return fm
+
+
+def _record_path_key(dataset: Any, idx: int) -> str:
+    """Stable identifier for record ``idx`` of ``dataset``.
+
+    Falls back to ``<idx=N>`` when the dataset does not expose ``_records``
+    with a path field — only ImageFolderDataset and FaceForensicsAdapter
+    currently do.
+    """
+    records = getattr(dataset, "_records", None)
+    if records is not None and idx < len(records):
+        rec = records[idx]
+        path = getattr(rec, "path", None) or getattr(rec, "image_path", None)
+        if path is not None:
+            return str(path)
+    # Subset wraps another Dataset; recurse through the indices attribute.
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        return _record_path_key(dataset.dataset, dataset.indices[idx])
+    return f"<idx={idx}>"
 
 
 def _to_hwc_float(image: Any) -> np.ndarray:
@@ -169,21 +227,19 @@ def evaluate_pipeline(
     Returns:
         ``(val_metrics, test_metrics, fitted_pipeline, FeatureMatrix)``.
     """
-    if cache_path is not None and Path(cache_path).exists():
-        print(f"loading cached features from {cache_path}")
-        fm = FeatureMatrix.load(cache_path)
-    else:
-        print(f"extracting features over {len(dataset)} records ...")  # type: ignore[arg-type]
-        fm = extract_features_over_dataset(
-            dataset,
-            device=device,
-            params=params,
-            cnn_model=cnn_model,
-            cnn_device=cnn_device,
-        )
-        if cache_path is not None:
-            fm.save(cache_path)
-            print(f"cached features to {cache_path}")
+    # extract_features_over_dataset itself handles loading + appending the
+    # cache when cache_path is supplied, so we always call it. The "fully
+    # cached" case (every record already in the cache) returns immediately
+    # because every dataset[i] gets short-circuited by done_paths.
+    print(f"extracting features over {len(dataset)} records ...")  # type: ignore[arg-type]
+    fm = extract_features_over_dataset(
+        dataset,
+        device=device,
+        params=params,
+        cnn_model=cnn_model,
+        cnn_device=cnn_device,
+        cache_path=cache_path,
+    )
 
     n = fm.features.shape[0]
     train_idx, val_idx, test_idx = stratified_split(

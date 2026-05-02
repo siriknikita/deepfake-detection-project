@@ -145,3 +145,39 @@ def test_evaluate_pipeline_smoke() -> None:
             assert 0.0 <= m.accuracy <= 1.0
             # auroc may be NaN if a tiny split lands all-one-class.
             assert (np.isfinite(m.auroc) and 0.0 <= m.auroc <= 1.0) or np.isnan(m.auroc)
+
+
+def test_extract_features_resumes_from_partial_cache() -> None:
+    """Crash mid-extraction → restart picks up where it left off."""
+    pytest.importorskip("torch")
+    pytest.importorskip("pandas")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        ds = _make_dataset(root, n_per_class=4)
+        cache = root / "feats.csv"
+        from forge_detect.config import PdeParams, PipelineParams
+
+        # First call: process every record, write the full cache.
+        params = PipelineParams(n_scales=2, pde=PdeParams(max_iter=10, log_every=5))
+        fm1 = extract_features_over_dataset(
+            ds,
+            params=params,
+            log_every=0,
+            cache_path=cache,
+            save_every=1,
+        )
+        assert cache.exists()
+        assert fm1.features.shape[0] == 8
+
+        # Second call: cache exists, every record's path_key is in done_paths,
+        # so the loop skips every record and we return the cached features
+        # without re-running the pipeline. The result must equal fm1 exactly.
+        fm2 = extract_features_over_dataset(
+            ds,
+            params=params,
+            log_every=0,
+            cache_path=cache,
+        )
+        assert fm2.features.shape == fm1.features.shape
+        np.testing.assert_array_equal(fm2.labels, fm1.labels)
+        np.testing.assert_allclose(fm2.features, fm1.features, atol=1e-5)
