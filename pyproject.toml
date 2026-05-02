@@ -79,6 +79,7 @@ ignore = [
     "RUF046",       # int(int) idioms appear in numerical glue code
     "N812",         # `import torch.nn.functional as F` is the canonical idiom
     "PLR0915",      # numerical kernels accumulate many sequential statements
+    "PLW2901",      # `for x in ...: x = x.to(device)` is idiomatic in PyTorch loops
 ]
 
 [tool.ruff.lint.per-file-ignores]
