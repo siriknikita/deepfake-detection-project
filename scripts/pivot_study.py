@@ -239,9 +239,37 @@ def main() -> int:
     parser.add_argument(
         "--skip-trained-cnn",
         action="store_true",
-        help="Skip training the ChromaticEfficientNet — only run pure-CNN and heuristic.",
+        help="DEPRECATED: same as --baselines pure-cnn,heuristic. Kept for back-compat.",
+    )
+    parser.add_argument(
+        "--baselines",
+        type=str,
+        default="all",
+        help=(
+            "Comma-separated subset of {pure-cnn, heuristic, trained-cnn} to run, "
+            "or 'all' (default). Lets you run just the cheap stages first and "
+            "add expensive ones later. Examples:\n"
+            "  --baselines heuristic         # phase-1 only, ~2 hours\n"
+            "  --baselines pure-cnn,heuristic   # add pure-CNN baseline\n"
+            "  --baselines all                  # full pivot study, ~25 hours"
+        ),
     )
     args = parser.parse_args()
+
+    # Resolve --baselines into a set, honoring the legacy --skip-trained-cnn.
+    valid_baselines = {"pure-cnn", "heuristic", "trained-cnn"}
+    if args.baselines == "all":
+        active_baselines = set(valid_baselines)
+    else:
+        active_baselines = {b.strip() for b in args.baselines.split(",") if b.strip()}
+        unknown = active_baselines - valid_baselines
+        if unknown:
+            parser.error(
+                f"unknown baselines: {sorted(unknown)} — pick from {sorted(valid_baselines)}",
+            )
+    if args.skip_trained_cnn:
+        active_baselines.discard("trained-cnn")
+    print(f"[pivot] active baselines: {sorted(active_baselines)}")
 
     from forge_detect.datasets import stratified_split
 
@@ -264,31 +292,33 @@ def main() -> int:
         partial_path.write_text(json.dumps(report, indent=2, default=str))
 
     # Baseline 1: pure CNN end-to-end.
-    print("\n--- Baseline 1: pure CNN ---")
-    report["baselines"]["pure_cnn"] = _run_baseline_cnn(
-        dataset,
-        train_idx,
-        val_idx,
-        test_idx,
-        args,
-    )
-    _flush_partial()
+    if "pure-cnn" in active_baselines:
+        print("\n--- Baseline 1: pure CNN ---")
+        report["baselines"]["pure_cnn"] = _run_baseline_cnn(
+            dataset,
+            train_idx,
+            val_idx,
+            test_idx,
+            args,
+        )
+        _flush_partial()
 
     # Baseline 2: pipeline + heuristic trust map.
-    print("\n--- Baseline 2: pipeline (heuristic W_cnn) ---")
-    report["baselines"]["pipeline_heuristic"] = _run_pipeline_eval(
-        dataset,
-        train_idx,
-        val_idx,
-        test_idx,
-        args,
-        cnn_checkpoint=None,
-        label="heuristic",
-    )
-    _flush_partial()
+    if "heuristic" in active_baselines:
+        print("\n--- Baseline 2: pipeline (heuristic W_cnn) ---")
+        report["baselines"]["pipeline_heuristic"] = _run_pipeline_eval(
+            dataset,
+            train_idx,
+            val_idx,
+            test_idx,
+            args,
+            cnn_checkpoint=None,
+            label="heuristic",
+        )
+        _flush_partial()
 
     # Baseline 3: train ChromaticEfficientNet, then pipeline + trained trust map.
-    if not args.skip_trained_cnn:
+    if "trained-cnn" in active_baselines:
         print("\n--- Training ChromaticEfficientNet for trust map ---")
         from forge_detect.train import TrainingConfig, train_cnn
 
