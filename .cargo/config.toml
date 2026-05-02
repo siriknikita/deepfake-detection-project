@@ -1,2 +1,20 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
+
+# PyO3 extension modules must defer libpython symbols (None, True, ...) to the
+# Python interpreter that loads the shared library at runtime. On macOS this
+# means passing -undefined dynamic_lookup to the linker; without it
+# `cargo build` and `cargo test` both fail with __Py_NoneStruct missing.
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "link-arg=-undefined",
+    "-C", "link-arg=dynamic_lookup",
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-C", "target-cpu=native",
+    "-C", "link-arg=-undefined",
+    "-C", "link-arg=dynamic_lookup",
+]

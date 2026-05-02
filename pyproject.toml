@@ -40,7 +40,7 @@ dev = [
 forge-detect = "forge_detect.cli:main"
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "python-extension"]
 python-source = "python"
 module-name = "forge_detect._core"
 

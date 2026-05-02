@@ -10,6 +10,13 @@ authors = ["Siryk Mykyta"]
 name = "hyperplane_core"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+# Enable the Python extension entry point. Set automatically by maturin via
+# pyproject.toml; off for `cargo test` so the rlib does not link against
+# libpython and crash on startup with "_PyCapsule_Type not found".
+python-extension = []
+
 [dependencies]
 pyo3 = { version = "0.22", features = ["extension-module", "abi3-py310"] }
 numpy = "0.22"
@@ -47,3 +54,7 @@ range_plus_one = "allow"
 needless_pass_by_value = "allow"
 inline_always = "allow"
 too_many_arguments = "allow"
+# PyO3 macro expansions emit T::into(x) on error paths even when T is the
+# same type; allow at the crate level so clippy stays clean under the
+# `python-extension` feature.
+useless_conversion = "allow"
