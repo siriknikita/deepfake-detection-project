@@ -1,6 +1,6 @@
 """Dataset adapters for training and evaluation.
 
-Two data sources are supported out of the box:
+Three data sources are supported out of the box:
 
 - :class:`ImageFolderDataset` — generic two-folder layout
   ``(real_dir/, fake_dir/)`` of frame-level images. Use this when you
@@ -9,20 +9,25 @@ Two data sources are supported out of the box:
 - :class:`FaceForensicsAdapter` — the canonical FaceForensics++ tree:
   ``original_sequences/youtube/<compression>/frames/<video_id>/<frame>.png``
   and ``manipulated_sequences/<method>/<compression>/frames/<video_id>/<frame>.png``.
-  Frame extraction from videos is delegated to
-  ``scripts/extract_frames.py``; the adapter assumes frames already on disk.
+  Optionally honors the official ``splits/{train,val,test}.json``.
 
-Both adapters return ``(image, label)`` where ``image`` is an
-``(3, H, W)`` float32 tensor in ``[0, 1]`` and ``label`` is ``0`` for
-real / ``1`` for fake. ``FaceForensicsAdapter`` optionally also returns
-the pixel-level fake mask when one is available alongside the frame.
+- :class:`CelebDFAdapter` — Celeb-DF v1 / v2 layout
+  ``<subset>/frames/<video_id>/<frame>.png`` for ``subset`` in
+  ``{Celeb-real, Celeb-synthesis, YouTube-real}``. Optionally honors
+  ``List_of_testing_videos.txt`` (the published 518-video benchmark).
+
+All adapters return ``(image, label[, mask])`` with ``image`` an
+``(3, H, W)`` float32 tensor in ``[0, 1]`` and ``label`` ``0`` (real)
+or ``1`` (fake). Each record also carries ``video_id``, which lets us
+pool frame-level scores into video-level scores at evaluation time.
 
 Where to get the data:
 
 - *FaceForensics++*: https://github.com/ondyari/FaceForensics — sign the
   EULA, run their download script. ~1.5 TB at full quality.
-- *Celeb-DF (v2)*: https://github.com/yuezunli/celeb-deepfakeforensics —
-  ~50 GB, EULA required.
+- *Celeb-DF (v1, v2)*: https://github.com/yuezunli/celeb-deepfakeforensics
+  — ~50 GB combined, EULA required. Used cross-dataset to test
+  generalization of FF++-trained detectors.
 - *DFDC*: https://www.kaggle.com/c/deepfake-detection-challenge/data —
   ~470 GB, larger and noisier than FF++.
 - *FFHQ* (real-only): https://github.com/NVlabs/ffhq-dataset — 70 k
@@ -32,6 +37,8 @@ Where to get the data:
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -81,6 +88,7 @@ def load_image_chw(path: Path, target_size: tuple[int, int] | None = None) -> np
 class _ImageFolderRecord:
     path: Path
     label: int  # 0 = real, 1 = fake
+    video_id: str  # parent directory name, used as a coarse grouping key
 
 
 class ImageFolderDataset(Dataset):
@@ -106,8 +114,8 @@ class ImageFolderDataset(Dataset):
         self.fake_dir = Path(fake_dir)
         self.target_size = target_size
         self._records: list[_ImageFolderRecord] = [
-            _ImageFolderRecord(p, 0) for p in _list_images(self.real_dir)
-        ] + [_ImageFolderRecord(p, 1) for p in _list_images(self.fake_dir)]
+            _ImageFolderRecord(p, 0, p.parent.name) for p in _list_images(self.real_dir)
+        ] + [_ImageFolderRecord(p, 1, p.parent.name) for p in _list_images(self.fake_dir)]
         if not self._records:
             msg = (
                 f"no images found under {self.real_dir} or {self.fake_dir}; "
@@ -131,6 +139,7 @@ class _FFRecord:
     image_path: Path
     mask_path: Path | None
     label: int
+    video_id: str  # source video the frame was extracted from
 
 
 class FaceForensicsAdapter(Dataset):
@@ -153,8 +162,15 @@ class FaceForensicsAdapter(Dataset):
             (default: all four).
         compression: ``"raw"``, ``"c23"``, or ``"c40"``.
         max_frames_per_video: If set, sample at most this many frames per
-            video — useful for keeping epoch sizes manageable.
+            video via uniform stride-sampling.
         target_size: Optional resize.
+        subset_video_ids: If given, drop frames whose source video is not
+            in this set. Apply *after* loading the official splits, so
+            you can intersect e.g. ``test_videos & {known-good ids}``.
+        ff_split: One of ``"train" | "val" | "test"`` to load the
+            official ``splits/<split>.json`` (the canonical 720/140/140
+            video-disjoint split used by every FF++ paper). Reads from
+            ``<root>/splits/<split>.json``.
     """
 
     def __init__(
@@ -164,6 +180,8 @@ class FaceForensicsAdapter(Dataset):
         compression: str = "c23",
         max_frames_per_video: int | None = None,
         target_size: tuple[int, int] | None = None,
+        subset_video_ids: Iterable[str] | None = None,
+        ff_split: str | None = None,
     ) -> None:
         self.root = Path(root)
         if compression not in FF_COMPRESSIONS:
@@ -172,12 +190,27 @@ class FaceForensicsAdapter(Dataset):
         self.compression = compression
         self.target_size = target_size
 
+        # Resolve the subset filter: if `ff_split` is set, intersect its
+        # videos with `subset_video_ids` (when both are given).
+        keep_videos: set[str] | None = None
+        if ff_split is not None:
+            keep_videos = load_ff_split(self.root, ff_split)
+        if subset_video_ids is not None:
+            extra = set(subset_video_ids)
+            keep_videos = extra if keep_videos is None else keep_videos & extra
+
         records: list[_FFRecord] = []
         # Real frames.
         real_root = self.root / "original_sequences" / "youtube" / compression / "frames"
         if real_root.exists():
             records.extend(
-                self._collect(real_root, label=0, mask_root=None, cap=max_frames_per_video)
+                self._collect(
+                    real_root,
+                    label=0,
+                    mask_root=None,
+                    cap=max_frames_per_video,
+                    keep_videos=keep_videos,
+                ),
             )
         # Fake frames per method.
         for method in methods:
@@ -191,6 +224,7 @@ class FaceForensicsAdapter(Dataset):
                     label=1,
                     mask_root=mask_root if mask_root.exists() else None,
                     cap=max_frames_per_video,
+                    keep_videos=keep_videos,
                 ),
             )
         if not records:
@@ -208,9 +242,12 @@ class FaceForensicsAdapter(Dataset):
         label: int,
         mask_root: Path | None,
         cap: int | None,
+        keep_videos: set[str] | None,
     ) -> list[_FFRecord]:
         out: list[_FFRecord] = []
         for video_dir in sorted(p for p in frames_root.iterdir() if p.is_dir()):
+            if keep_videos is not None and not _video_in_set(video_dir.name, keep_videos):
+                continue
             frames = sorted(p for p in video_dir.iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS)
             if cap is not None:
                 # Stride-sample to keep early/late frames represented.
@@ -222,7 +259,14 @@ class FaceForensicsAdapter(Dataset):
                     candidate = mask_root / video_dir.name / f.name
                     if candidate.exists():
                         mask_path = candidate
-                out.append(_FFRecord(image_path=f, mask_path=mask_path, label=label))
+                out.append(
+                    _FFRecord(
+                        image_path=f,
+                        mask_path=mask_path,
+                        label=label,
+                        video_id=video_dir.name,
+                    ),
+                )
         return out
 
     def __len__(self) -> int:
@@ -243,6 +287,217 @@ class FaceForensicsAdapter(Dataset):
             mask = torch.from_numpy(mask_np)
         return image, rec.label, mask
 
+    def video_ids(self) -> list[str]:
+        """Sorted unique video ids across all records (real + fake)."""
+        return sorted({rec.video_id for rec in self._records})
+
+
+def _video_in_set(video_id: str, keep: set[str]) -> bool:
+    """Match a frame directory's video_id against a set of canonical ids.
+
+    FF++ manipulated-video directories are named ``<target>_<source>``
+    (e.g. ``001_023``). The canonical splits list individual identifiers
+    (``001``, ``023``); a manipulated video belongs to a split iff *both*
+    of its component ids are in that split's set. Real video ids match
+    directly. This helper handles both cases.
+    """
+    if video_id in keep:
+        return True
+    parts = video_id.split("_")
+    return len(parts) == 2 and parts[0] in keep and parts[1] in keep
+
+
+def load_ff_split(root: Path | str, split: str) -> set[str]:
+    """Load the official FF++ ``splits/<split>.json`` as a flat set of ids.
+
+    The on-disk format is a JSON array of two-element string arrays —
+    e.g. ``[["001", "023"], ...]`` — listing source / target identifier
+    pairs. We flatten that to a set so it can intersect a video filter.
+    """
+    if split not in {"train", "val", "test"}:
+        msg = f"ff_split must be train|val|test, got {split!r}"
+        raise ValueError(msg)
+    path = Path(root) / "splits" / f"{split}.json"
+    if not path.exists():
+        msg = (
+            f"FF++ split file not found: {path}. "
+            "These ship with the FF++ downloader; if missing, fetch via "
+            "`download-FaceForensics++.py <root> -d original_youtube_videos -t info`."
+        )
+        raise FileNotFoundError(msg)
+    raw = json.loads(path.read_text())
+    out: set[str] = set()
+    for pair in raw:
+        out.update(str(x) for x in pair)
+    return out
+
+
+# ---------- Celeb-DF (v1, v2) -----------------------------------------------
+
+CELEB_SUBSETS_REAL: tuple[str, ...] = ("Celeb-real", "YouTube-real")
+CELEB_SUBSETS_FAKE: tuple[str, ...] = ("Celeb-synthesis",)
+
+
+@dataclass
+class _CelebRecord:
+    image_path: Path
+    label: int
+    video_id: str  # of the form "<subset>/<video_stem>" — globally unique
+
+
+class CelebDFAdapter(Dataset):
+    """Adapter for the Celeb-DF (v1 / v2) on-disk layout.
+
+    Expected directory tree under ``root`` (after frame extraction)::
+
+        Celeb-real/frames/<video_id>/<frame>.png        # real
+        YouTube-real/frames/<video_id>/<frame>.png      # real (v2 only)
+        Celeb-synthesis/frames/<video_id>/<frame>.png   # fake
+
+    Use ``testing_list`` to honor the published 518-video benchmark
+    (``List_of_testing_videos.txt``, shipped with v2). Every cross-
+    dataset paper reports against this exact subset, so it is the only
+    methodologically defensible eval split for cross-dataset numbers.
+
+    Args:
+        root: Path to the Celeb-DF root.
+        max_frames_per_video: Optional uniform-stride frame cap.
+        target_size: Optional resize.
+        testing_list: Path to ``List_of_testing_videos.txt``. When set,
+            only frames belonging to those 518 videos are kept. If you
+            pass ``True``, the file is auto-located at
+            ``<root>/List_of_testing_videos.txt``.
+        subset_video_ids: Optional set of ``"<subset>/<stem>"`` ids to
+            keep (post-``testing_list`` filter).
+    """
+
+    def __init__(
+        self,
+        root: str | Path,
+        max_frames_per_video: int | None = None,
+        target_size: tuple[int, int] | None = None,
+        testing_list: bool | str | Path = False,
+        subset_video_ids: Iterable[str] | None = None,
+    ) -> None:
+        self.root = Path(root)
+        self.target_size = target_size
+
+        keep_videos: set[str] | None = None
+        if testing_list:
+            list_path = (
+                self.root / "List_of_testing_videos.txt"
+                if testing_list is True
+                else Path(testing_list)
+            )
+            keep_videos = load_celeb_testing_list(list_path)
+        if subset_video_ids is not None:
+            extra = set(subset_video_ids)
+            keep_videos = extra if keep_videos is None else keep_videos & extra
+
+        records: list[_CelebRecord] = []
+        for subset in CELEB_SUBSETS_REAL:
+            records.extend(
+                self._collect_subset(
+                    subset,
+                    label=0,
+                    cap=max_frames_per_video,
+                    keep_videos=keep_videos,
+                ),
+            )
+        for subset in CELEB_SUBSETS_FAKE:
+            records.extend(
+                self._collect_subset(
+                    subset,
+                    label=1,
+                    cap=max_frames_per_video,
+                    keep_videos=keep_videos,
+                ),
+            )
+        if not records:
+            msg = (
+                f"no frames found under {self.root}. Expected layout: "
+                f"<root>/{{Celeb-real,Celeb-synthesis,YouTube-real}}/frames/<video>/*.png. "
+                "Did you run scripts/extract_frames.py --dataset celeb-df?"
+            )
+            raise FileNotFoundError(msg)
+        self._records = records
+
+    def _collect_subset(
+        self,
+        subset: str,
+        label: int,
+        cap: int | None,
+        keep_videos: set[str] | None,
+    ) -> list[_CelebRecord]:
+        frames_root = self.root / subset / "frames"
+        if not frames_root.exists():
+            return []
+        out: list[_CelebRecord] = []
+        for video_dir in sorted(p for p in frames_root.iterdir() if p.is_dir()):
+            video_id = f"{subset}/{video_dir.name}"
+            if keep_videos is not None and video_id not in keep_videos:
+                continue
+            frames = sorted(p for p in video_dir.iterdir() if p.suffix.lower() in _IMAGE_EXTENSIONS)
+            if cap is not None:
+                stride = max(1, len(frames) // cap)
+                frames = frames[::stride][:cap]
+            for f in frames:
+                out.append(_CelebRecord(image_path=f, label=label, video_id=video_id))
+        return out
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
+        rec = self._records[idx]
+        arr = load_image_chw(rec.image_path, self.target_size)
+        import torch
+
+        return torch.from_numpy(arr), rec.label
+
+    def video_ids(self) -> list[str]:
+        return sorted({rec.video_id for rec in self._records})
+
+
+def load_celeb_testing_list(path: Path | str) -> set[str]:
+    """Parse ``List_of_testing_videos.txt`` into ``{<subset>/<stem>}`` ids.
+
+    The file ships with Celeb-DF v2 and lists the canonical 518-video
+    benchmark, one entry per line, in the form::
+
+        1 YouTube-real/00170.mp4
+        0 Celeb-synthesis/id0_id16_0009.mp4
+
+    The first column is the dataset's own real/fake flag (``1`` real,
+    ``0`` fake — *opposite* to our ``0=real / 1=fake`` convention) and
+    we ignore it: real/fake labels come from the directory the video
+    sits in, not from the testing-list flag. We only keep the second
+    column, stripped of the ``.mp4`` suffix, so it matches the
+    ``<subset>/<video_stem>`` ids the adapter assigns.
+    """
+    p = Path(path)
+    if not p.exists():
+        msg = (
+            f"List_of_testing_videos.txt not found at {p}. It ships with "
+            "the Celeb-DF v2 archive; without it we cannot reproduce the "
+            "published cross-dataset benchmark."
+        )
+        raise FileNotFoundError(msg)
+    out: set[str] = set()
+    for line in p.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # `1 YouTube-real/00170.mp4` -> ('1', 'YouTube-real/00170.mp4')
+        parts = line.split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        rel = parts[1].strip()
+        if rel.endswith(".mp4"):
+            rel = rel[:-4]
+        out.add(rel)
+    return out
+
 
 def stratified_split(
     n: int,
@@ -255,6 +510,11 @@ def stratified_split(
     Uses a fixed random seed so the split is reproducible across runs.
     Assumes the underlying dataset already balances its real/fake split;
     if it does not, see scikit-learn's ``train_test_split(stratify=labels)``.
+
+    Note: this splits *records* (frames). For deepfake detection, prefer
+    :func:`split_videos` so frames from the same video do not leak across
+    train/val/test — frame-level splits inflate AUROC by ~5–15 points
+    because adjacent frames are nearly identical.
     """
     rng = np.random.default_rng(seed)
     perm = rng.permutation(n)
@@ -266,11 +526,46 @@ def stratified_split(
     return train_idx, val_idx, test_idx
 
 
+def split_videos(
+    video_ids: Iterable[str],
+    *,
+    seed: int = 0,
+    val_fraction: float = 0.15,
+    test_fraction: float = 0.15,
+) -> tuple[set[str], set[str], set[str]]:
+    """Return ``(train, val, test)`` video-id sets for a video-disjoint split.
+
+    Methodologically correct for deepfake detection: frames from the same
+    source video must not appear in more than one split, otherwise
+    train→test leakage inflates the reported AUROC. The split is by *id*,
+    so a downstream adapter can be re-built per split with whatever
+    frame-per-video cap is appropriate for that split (e.g. 30 for
+    training to give the model variety, 10 for evaluation per the
+    academic protocol).
+    """
+    ids = sorted(set(video_ids))
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(len(ids))
+    n = len(ids)
+    n_test = int(test_fraction * n)
+    n_val = int(val_fraction * n)
+    test_set = {ids[i] for i in perm[:n_test]}
+    val_set = {ids[i] for i in perm[n_test : n_test + n_val]}
+    train_set = {ids[i] for i in perm[n_test + n_val :]}
+    return train_set, val_set, test_set
+
+
 __all__ = [
+    "CELEB_SUBSETS_FAKE",
+    "CELEB_SUBSETS_REAL",
+    "CelebDFAdapter",
     "FF_COMPRESSIONS",
     "FF_METHODS",
     "FaceForensicsAdapter",
     "ImageFolderDataset",
+    "load_celeb_testing_list",
+    "load_ff_split",
     "load_image_chw",
+    "split_videos",
     "stratified_split",
 ]
