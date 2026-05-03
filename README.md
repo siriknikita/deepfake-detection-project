@@ -115,6 +115,15 @@ After `ssh`-ing into a cluster node and `git clone`-ing the repo:
 
 This installs `rustup`, `uv`, builds the Rust extension into `.venv`, probes `torch.cuda.is_available()`, and runs both test suites. **Idempotent** — safe to re-run on partial failures. If `ffmpeg` is missing the script flags it but does not abort; `module load ffmpeg` or `apt install ffmpeg` covers it on most clusters.
 
+Then run the diagnostic script once to verify the VM environment:
+
+```bash
+./scripts/cluster_diagnose.sh           # human-readable
+./scripts/cluster_diagnose.sh --json    # machine-readable for logs
+```
+
+It surfaces the things that are easy to miss in a Proxmox VM: hypervisor type, vCPU oversubscription (CPU steal), RAM ballooning, `/scratch` capacity, GPU passthrough status, NVLink topology, and a quick filesystem-write smoke test. If `torch.cuda is_available=False` or `nvidia-smi` is missing, escalate to the cluster admin before queuing a long job.
+
 ### 2. Download datasets
 
 ```bash
