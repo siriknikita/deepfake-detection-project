@@ -1,8 +1,9 @@
 """Pivot study: pure-CNN baseline vs heuristic pipeline vs full pipeline.
 
 Trains all three approaches on the same labeled dataset with the same
-train / val / test split and reports AUROC, accuracy, and approximate
-runtime cost. The diploma's empirical chapter consumes this report:
+*video-disjoint* train / val / test split and reports both frame-level
+and video-level AUROC, accuracy, and approximate runtime cost. The
+diploma's empirical chapter consumes this report:
 
   - **Pure CNN** wins by a clear margin → the math framework adds no
     value; pivot to a learned-classifier-only project.
@@ -19,15 +20,15 @@ Run on a small slice first:
 
     python scripts/pivot_study.py \\
         --data-root /scratch/data/FaceForensics++ \\
-        --max-frames-per-video 1 --image-size 128 \\
-        --epochs 3 --device cuda
+        --frames-per-video-train 1 --frames-per-video-eval 1 \\
+        --image-size 128 --epochs 3 --device cuda
 
 Then on the full split for the diploma:
 
     python scripts/pivot_study.py \\
         --data-root /scratch/data/FaceForensics++ \\
-        --max-frames-per-video 30 --image-size 256 \\
-        --epochs 30 --device cuda \\
+        --frames-per-video-train 30 --frames-per-video-eval 10 \\
+        --image-size 256 --epochs 30 --device cuda \\
         --output runs/pivot_report.json
 """
 
@@ -35,40 +36,60 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any
 
 
-def _build_dataset(args: argparse.Namespace, root: Path) -> Any:
-    from forge_detect.datasets import FaceForensicsAdapter, ImageFolderDataset
+def _build_dataset(
+    args: argparse.Namespace,
+    *,
+    subset_video_ids: set[str] | None,
+    frames_per_video: int | None,
+) -> Any:
+    from forge_detect.datasets import (
+        CelebDFAdapter,
+        FaceForensicsAdapter,
+        ImageFolderDataset,
+    )
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     if args.dataset == "image-folder":
         return ImageFolderDataset(
-            real_dir=root,
+            real_dir=args.data_root,
             fake_dir=args.fake_dir,
             target_size=target_size,
         )
+    if args.dataset == "celeb-df":
+        return CelebDFAdapter(
+            root=args.data_root,
+            max_frames_per_video=frames_per_video,
+            target_size=target_size,
+            testing_list=args.celeb_testing_list,
+            subset_video_ids=subset_video_ids,
+        )
     return FaceForensicsAdapter(
-        root=root,
+        root=args.data_root,
         compression=args.compression,
-        max_frames_per_video=args.max_frames_per_video,
+        max_frames_per_video=frames_per_video,
         target_size=target_size,
+        subset_video_ids=subset_video_ids,
     )
 
 
-def _stratified_subset(dataset: Any, indices: list[int]) -> Any:
-    from torch.utils.data import Subset
-
-    return Subset(dataset, indices)
+def _all_video_ids(args: argparse.Namespace) -> list[str]:
+    full = _build_dataset(args, subset_video_ids=None, frames_per_video=1)
+    if hasattr(full, "video_ids"):
+        return full.video_ids()
+    records = getattr(full, "_records", [])
+    return sorted({rec.video_id for rec in records})
 
 
 def _run_baseline_cnn(
-    dataset: Any,
-    train_idx: list[int],
-    val_idx: list[int],
-    test_idx: list[int],
+    train_ds: Any,
+    val_ds: Any,
+    test_ds: Any,
     args: argparse.Namespace,
 ) -> dict[str, float]:
     """Train EfficientNet-B0 directly on (image, label).
@@ -84,9 +105,6 @@ def _run_baseline_cnn(
     )
     from forge_detect.cnn import load_weights
 
-    train_ds = _stratified_subset(dataset, train_idx)
-    val_ds = _stratified_subset(dataset, val_idx)
-    test_ds = _stratified_subset(dataset, test_idx)
     run_dir = args.runs_dir / "baseline_run"
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg = BaselineConfig(
@@ -123,16 +141,21 @@ def _run_baseline_cnn(
 
 
 def _run_pipeline_eval(
-    dataset: Any,
-    train_idx: list[int],
-    val_idx: list[int],
-    test_idx: list[int],
+    train_ds: Any,
+    val_ds: Any,
+    test_ds: Any,
     args: argparse.Namespace,
     *,
     cnn_checkpoint: Path | None,
     label: str,
-) -> dict[str, float]:
-    """Run the math pipeline → features → GBC on the supplied splits."""
+) -> dict[str, Any]:
+    """Run the math pipeline → features → GBC on the supplied splits.
+
+    Each split's features are extracted independently (separate cache
+    files) so a crash mid-stream resumes per-split. Video-level AUROC
+    is reported alongside frame-level using the per-row video_id
+    captured during extraction.
+    """
     from forge_detect.classifier import evaluate_classifier, train_classifier
     from forge_detect.cnn import build_chromatic_efficientnet, load_weights
     from forge_detect.config import PdeParams, PipelineParams
@@ -146,42 +169,50 @@ def _run_pipeline_eval(
         load_weights(cnn_model, cnn_checkpoint)
         cnn_model = cnn_model.to(cnn_device).eval()
 
-    # The pipeline runs once over every record; features are then sliced
-    # by the precomputed split indices.
-    cache_path = args.runs_dir / f"features-{label}.csv"
-    if cache_path.exists():
-        from forge_detect.eval import FeatureMatrix
+    params = PipelineParams(
+        n_scales=args.n_scales,
+        pde=PdeParams(max_iter=args.max_iter),
+    )
 
-        print(f"[{label}] loading cached features from {cache_path}")
-        fm = FeatureMatrix.load(cache_path)
-    else:
-        print(f"[{label}] extracting features over {len(dataset)} records ...")
-        params = PipelineParams(
-            n_scales=args.n_scales,
-            pde=PdeParams(max_iter=args.max_iter),
-        )
-        t0 = time.time()
-        fm = extract_features_over_dataset(
-            dataset,
+    def _extract(ds: Any, split_name: str) -> Any:
+        cache_path = args.runs_dir / f"features-{label}-{split_name}.csv"
+        print(f"[{label}] extracting features ({split_name}, {len(ds)} frames) ...")
+        return extract_features_over_dataset(
+            ds,
             device=args.device,
             params=params,
             cnn_model=cnn_model,
             cnn_device=cnn_device,
+            cache_path=cache_path,
         )
-        print(f"[{label}] feature extraction took {time.time() - t0:.1f}s")
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        fm.save(cache_path)
 
-    classifier = train_classifier(fm.features[train_idx], fm.labels[train_idx])
-    test_m = evaluate_classifier(classifier, fm.features[test_idx], fm.labels[test_idx])
-    val_m = evaluate_classifier(classifier, fm.features[val_idx], fm.labels[val_idx])
+    t0 = time.time()
+    fm_train = _extract(train_ds, "train")
+    fm_val = _extract(val_ds, "val")
+    fm_test = _extract(test_ds, "test")
+    extract_seconds = time.time() - t0
+
+    classifier = train_classifier(fm_train.features, fm_train.labels)
+    val_m = evaluate_classifier(
+        classifier, fm_val.features, fm_val.labels, video_ids=fm_val.video_ids,
+    )
+    test_m = evaluate_classifier(
+        classifier, fm_test.features, fm_test.labels, video_ids=fm_test.video_ids,
+    )
     return {
-        "test_auroc": test_m.auroc,
-        "test_accuracy": test_m.accuracy,
-        "val_auroc": val_m.auroc,
-        "val_accuracy": val_m.accuracy,
-        "n_test_real": test_m.n_real,
-        "n_test_fake": test_m.n_fake,
+        "frame_test_auroc": test_m.auroc,
+        "frame_test_accuracy": test_m.accuracy,
+        "frame_val_auroc": val_m.auroc,
+        "frame_val_accuracy": val_m.accuracy,
+        "video_test_auroc_mean": test_m.video_auroc_mean,
+        "video_test_auroc_max": test_m.video_auroc_max,
+        "video_val_auroc_mean": val_m.video_auroc_mean,
+        "video_val_auroc_max": val_m.video_auroc_max,
+        "n_test_real_frames": test_m.n_real,
+        "n_test_fake_frames": test_m.n_fake,
+        "n_test_real_videos": test_m.n_video_real,
+        "n_test_fake_videos": test_m.n_video_fake,
+        "extract_seconds": extract_seconds,
         "top_features": dict(
             sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:5],
         ),
@@ -193,15 +224,17 @@ def _format_report(report: dict[str, Any]) -> str:
     for name, metrics in report["baselines"].items():
         lines.append(f"\n[{name}]")
         for k, v in metrics.items():
-            if isinstance(v, float):
+            if isinstance(v, float) and not math.isnan(v):
                 lines.append(f"  {k:24s} {v:.4f}")
+            elif isinstance(v, float):  # NaN
+                lines.append(f"  {k:24s} (n/a)")
             else:
                 lines.append(f"  {k:24s} {v}")
     lines.append("\n" + "-" * 70)
-    lines.append("Decision rubric:")
-    lines.append("  Pure CNN > Full pipeline + 0.03 AUROC -> pivot to CNN-only")
-    lines.append("  Full pipeline > Pure CNN + 0.02 AUROC -> physics framework wins")
-    lines.append("  Heuristic ≈ Trained CNN -> CNN trust map is not adding value")
+    lines.append("Decision rubric (uses video-level AUROC, mean-pool):")
+    lines.append("  Pure CNN > Full pipeline + 0.03 -> pivot to CNN-only")
+    lines.append("  Full pipeline > Pure CNN + 0.02 -> physics framework wins")
+    lines.append("  Heuristic ≈ Trained CNN          -> CNN trust map adds no value")
     lines.append("=" * 70)
     return "\n".join(lines)
 
@@ -211,12 +244,31 @@ def main() -> int:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument(
         "--dataset",
-        choices=("face-forensics", "image-folder"),
+        choices=("face-forensics", "celeb-df", "image-folder"),
         default="face-forensics",
     )
     parser.add_argument("--fake-dir", type=Path, default=None)
     parser.add_argument("--compression", choices=("raw", "c23", "c40"), default="c23")
-    parser.add_argument("--max-frames-per-video", type=int, default=None)
+    parser.add_argument(
+        "--celeb-testing-list",
+        action="store_true",
+        help=(
+            "For --dataset=celeb-df: restrict to videos listed in "
+            "List_of_testing_videos.txt (the published 518-video benchmark)."
+        ),
+    )
+    parser.add_argument(
+        "--frames-per-video-train",
+        type=int,
+        default=30,
+        help="Frames per training video (default 30).",
+    )
+    parser.add_argument(
+        "--frames-per-video-eval",
+        type=int,
+        default=10,
+        help="Frames per val/test video (default 10, matches academic protocol).",
+    )
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=16)
@@ -236,10 +288,18 @@ def main() -> int:
     parser.add_argument("--max-iter", type=int, default=300)
     parser.add_argument("--runs-dir", type=Path, default=Path("runs/pivot"))
     parser.add_argument("--output", type=Path, default=None, help="Optional JSON report path.")
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--skip-trained-cnn",
-        action="store_true",
-        help="DEPRECATED: same as --baselines pure-cnn,heuristic. Kept for back-compat.",
+        "--val-fraction",
+        type=float,
+        default=0.15,
+        help="Fraction of *videos* held out for validation (default 0.15).",
+    )
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.15,
+        help="Fraction of *videos* held out for testing (default 0.15).",
     )
     parser.add_argument(
         "--baselines",
@@ -248,15 +308,11 @@ def main() -> int:
         help=(
             "Comma-separated subset of {pure-cnn, heuristic, trained-cnn} to run, "
             "or 'all' (default). Lets you run just the cheap stages first and "
-            "add expensive ones later. Examples:\n"
-            "  --baselines heuristic         # phase-1 only, ~2 hours\n"
-            "  --baselines pure-cnn,heuristic   # add pure-CNN baseline\n"
-            "  --baselines all                  # full pivot study, ~25 hours"
+            "add expensive ones later."
         ),
     )
     args = parser.parse_args()
 
-    # Resolve --baselines into a set, honoring the legacy --skip-trained-cnn.
     valid_baselines = {"pure-cnn", "heuristic", "trained-cnn"}
     if args.baselines == "all":
         active_baselines = set(valid_baselines)
@@ -267,22 +323,34 @@ def main() -> int:
             parser.error(
                 f"unknown baselines: {sorted(unknown)} — pick from {sorted(valid_baselines)}",
             )
-    if args.skip_trained_cnn:
-        active_baselines.discard("trained-cnn")
     print(f"[pivot] active baselines: {sorted(active_baselines)}")
 
-    from forge_detect.datasets import stratified_split
+    from forge_detect.datasets import split_videos
 
     args.runs_dir.mkdir(parents=True, exist_ok=True)
-    dataset = _build_dataset(args, args.data_root)
-    print(f"dataset size: {len(dataset)}")
-    train_idx, val_idx, test_idx = stratified_split(
-        len(dataset),
-        seed=0,
-        val_fraction=0.15,
-        test_fraction=0.15,
+    print("[pivot] enumerating videos for the disjoint split ...")
+    all_video_ids = _all_video_ids(args)
+    train_vids, val_vids, test_vids = split_videos(
+        all_video_ids,
+        seed=args.seed,
+        val_fraction=args.val_fraction,
+        test_fraction=args.test_fraction,
     )
-    print(f"split: train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
+    print(
+        f"[pivot] split: train={len(train_vids)} val={len(val_vids)} test={len(test_vids)} "
+        f"(of {len(all_video_ids)} total videos)",
+    )
+
+    train_ds = _build_dataset(
+        args, subset_video_ids=train_vids, frames_per_video=args.frames_per_video_train,
+    )
+    val_ds = _build_dataset(
+        args, subset_video_ids=val_vids, frames_per_video=args.frames_per_video_eval,
+    )
+    test_ds = _build_dataset(
+        args, subset_video_ids=test_vids, frames_per_video=args.frames_per_video_eval,
+    )
+    print(f"[pivot] frames: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}")
 
     report: dict[str, Any] = {"baselines": {}, "args": vars(args)}
     partial_path = args.runs_dir / "report.partial.json"
@@ -295,11 +363,7 @@ def main() -> int:
     if "pure-cnn" in active_baselines:
         print("\n--- Baseline 1: pure CNN ---")
         report["baselines"]["pure_cnn"] = _run_baseline_cnn(
-            dataset,
-            train_idx,
-            val_idx,
-            test_idx,
-            args,
+            train_ds, val_ds, test_ds, args,
         )
         _flush_partial()
 
@@ -307,13 +371,7 @@ def main() -> int:
     if "heuristic" in active_baselines:
         print("\n--- Baseline 2: pipeline (heuristic W_cnn) ---")
         report["baselines"]["pipeline_heuristic"] = _run_pipeline_eval(
-            dataset,
-            train_idx,
-            val_idx,
-            test_idx,
-            args,
-            cnn_checkpoint=None,
-            label="heuristic",
+            train_ds, val_ds, test_ds, args, cnn_checkpoint=None, label="heuristic",
         )
         _flush_partial()
 
@@ -331,8 +389,6 @@ def main() -> int:
             num_workers=args.num_workers,
             checkpoint_dir=trust_map_dir.parent,  # ignored — resume_dir wins
         )
-        train_ds = _stratified_subset(dataset, train_idx)
-        val_ds = _stratified_subset(dataset, val_idx)
         out = train_cnn(
             train_ds,
             val_ds,
@@ -344,13 +400,7 @@ def main() -> int:
 
         print("\n--- Baseline 3: pipeline (trained CNN W_cnn) ---")
         report["baselines"]["pipeline_trained_cnn"] = _run_pipeline_eval(
-            dataset,
-            train_idx,
-            val_idx,
-            test_idx,
-            args,
-            cnn_checkpoint=ckpt,
-            label="trained_cnn",
+            train_ds, val_ds, test_ds, args, cnn_checkpoint=ckpt, label="trained_cnn",
         )
         _flush_partial()
 

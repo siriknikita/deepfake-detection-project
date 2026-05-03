@@ -7,10 +7,20 @@ classifier on the resulting impact-map features. Total cluster time on
 a single 4090 with default settings is ~2 hours on a 30-frame-per-video
 FF++ slice, vs ~25 hours for the full pivot study.
 
+Methodology (matches the published cross-dataset protocol):
+- **Video-disjoint splits.** Train/val/test are split by *video id*,
+  not by frame index, so adjacent frames from the same video can never
+  leak across splits.
+- **Asymmetric frame caps.** Training uses ``--frames-per-video-train``
+  (default 30) for variety; eval uses ``--frames-per-video-eval``
+  (default 10) to match the canonical academic protocol.
+- **Video-level AUROC** is reported alongside frame-level. Mean-pool
+  per video is the canonical metric; max-pool is a robustness check.
+
 What you get:
-- runs_dir/features.csv               full impact-map feature matrix
-- runs_dir/classifier.pkl             trained sklearn pipeline
-- runs_dir/report.json                AUROC, accuracy, top features
+- runs_dir/features-train.csv, features-val.csv, features-test.csv
+- runs_dir/classifier.pkl                                 trained pipeline
+- runs_dir/report.json                                    AUROCs + top features
 
 Workflow:
 
@@ -19,6 +29,13 @@ Workflow:
         --data-root /scratch/$USER/data/FaceForensics++ \\
         --runs-dir runs/quick_phase1 \\
         --device cuda
+
+    # Cross-dataset evaluation against Celeb-DF v2's official 518-video set:
+    python scripts/quick_classifier.py \\
+        --data-root /scratch/$USER/data/Celeb-DF-v2 \\
+        --dataset celeb-df --celeb-testing-list \\
+        --classifier-checkpoint runs/quick_phase1/classifier.pkl \\
+        --runs-dir runs/quick_phase1_celebdf --device cuda
 
     # Wrap in continue.sh so a power outage does not kill the run:
     ./scripts/continue.sh -- python scripts/quick_classifier.py \\
@@ -32,7 +49,7 @@ it is weak, that itself is informative ("the math pipeline alone is
 not separating real from fake on this data").
 
 Resume on crash:
-- features.csv accumulates incrementally — restarts skip already-
+- Each features-*.csv accumulates incrementally — restarts skip already-
   processed images.
 - classifier.pkl is regenerated from features.csv on every run, so a
   classifier-stage crash just reruns sklearn (~seconds).
@@ -42,30 +59,68 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any
 
 
-def _build_dataset(args: argparse.Namespace) -> Any:
-    from forge_detect.datasets import FaceForensicsAdapter, ImageFolderDataset
+def _build_dataset(
+    args: argparse.Namespace,
+    *,
+    subset_video_ids: set[str] | None,
+    frames_per_video: int | None,
+) -> Any:
+    """Construct the configured dataset adapter restricted to a video subset.
+
+    Three flavors are supported via ``--dataset``:
+      - ``face-forensics`` (default): canonical FF++ tree.
+      - ``celeb-df``: Celeb-DF v1 / v2 — used for cross-dataset eval.
+      - ``image-folder``: generic ``(real_dir, fake_dir)`` pairs.
+    """
+    from forge_detect.datasets import (
+        CelebDFAdapter,
+        FaceForensicsAdapter,
+        ImageFolderDataset,
+    )
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     if args.dataset == "image-folder":
         if not args.fake_dir:
             msg = "--fake-dir is required for --dataset=image-folder"
             raise SystemExit(msg)
+        # subset_video_ids is unused for the bare image-folder case — the
+        # adapter does not have a video concept beyond the parent directory.
         return ImageFolderDataset(
             real_dir=args.data_root,
             fake_dir=args.fake_dir,
             target_size=target_size,
         )
+    if args.dataset == "celeb-df":
+        return CelebDFAdapter(
+            root=args.data_root,
+            max_frames_per_video=frames_per_video,
+            target_size=target_size,
+            testing_list=args.celeb_testing_list,
+            subset_video_ids=subset_video_ids,
+        )
     return FaceForensicsAdapter(
         root=args.data_root,
         compression=args.compression,
-        max_frames_per_video=args.max_frames_per_video,
+        max_frames_per_video=frames_per_video,
         target_size=target_size,
+        subset_video_ids=subset_video_ids,
     )
+
+
+def _all_video_ids(args: argparse.Namespace) -> list[str]:
+    """Build the dataset once with no frame cap to enumerate every video id."""
+    full = _build_dataset(args, subset_video_ids=None, frames_per_video=1)
+    if hasattr(full, "video_ids"):
+        return full.video_ids()
+    # ImageFolderDataset has video_id but no aggregator method — derive it.
+    records = getattr(full, "_records", [])
+    return sorted({rec.video_id for rec in records})
 
 
 def main() -> int:
@@ -74,16 +129,36 @@ def main() -> int:
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument(
         "--dataset",
-        choices=("face-forensics", "image-folder"),
+        choices=("face-forensics", "celeb-df", "image-folder"),
         default="face-forensics",
     )
     parser.add_argument("--fake-dir", type=Path, default=None)
     parser.add_argument("--compression", choices=("raw", "c23", "c40"), default="c23")
     parser.add_argument(
-        "--max-frames-per-video",
+        "--celeb-testing-list",
+        action="store_true",
+        help=(
+            "For --dataset=celeb-df: restrict to videos listed in "
+            "List_of_testing_videos.txt (the published 518-video benchmark)."
+        ),
+    )
+    parser.add_argument(
+        "--frames-per-video-train",
+        type=int,
+        default=30,
+        help=(
+            "Frame cap per training video (default 30). More frames = more "
+            "pose / lighting variety for the classifier to fit on."
+        ),
+    )
+    parser.add_argument(
+        "--frames-per-video-eval",
         type=int,
         default=10,
-        help="FF++ stride-sample cap (default 10 — fast turnaround).",
+        help=(
+            "Frame cap per val/test video (default 10). Matches the "
+            "academic cross-dataset protocol for video-level AUROC."
+        ),
     )
     parser.add_argument(
         "--image-size",
@@ -110,75 +185,161 @@ def main() -> int:
         default=200,
         help="Jacobi iteration cap (default 200).",
     )
-    # ---- output ----
+    # ---- output / split ----
     parser.add_argument("--runs-dir", type=Path, default=Path("runs/quick_phase1"))
     parser.add_argument(
         "--val-fraction",
         type=float,
         default=0.15,
-        help="Stratified val slice (default 0.15).",
+        help="Fraction of *videos* held out for validation (default 0.15).",
     )
     parser.add_argument(
         "--test-fraction",
         type=float,
         default=0.15,
-        help="Stratified test slice (default 0.15).",
+        help="Fraction of *videos* held out for testing (default 0.15).",
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--classifier-checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "Skip training; load this pre-trained classifier and only "
+            "extract features + evaluate on val+test. Useful for cross-"
+            "dataset eval against Celeb-DF after FF++ training."
+        ),
+    )
     args = parser.parse_args()
 
     args.runs_dir.mkdir(parents=True, exist_ok=True)
     print(f"[quick] runs_dir = {args.runs_dir}")
     print(f"[quick] image-size = {args.image_size}")
-    print(f"[quick] max-frames-per-video = {args.max_frames_per_video}")
+    print(f"[quick] frames-per-video train/eval = "
+          f"{args.frames_per_video_train}/{args.frames_per_video_eval}")
 
-    from forge_detect.classifier import save_classifier
+    from forge_detect.classifier import (
+        evaluate_classifier,
+        load_classifier,
+        save_classifier,
+        train_classifier,
+    )
     from forge_detect.config import PdeParams, PipelineParams
-    from forge_detect.eval import evaluate_pipeline
+    from forge_detect.datasets import split_videos
+    from forge_detect.eval import extract_features_over_dataset
 
-    dataset = _build_dataset(args)
-    print(f"[quick] dataset size = {len(dataset)}")
+    # 1. Enumerate all video ids and split *videos* (not frames) into
+    #    train/val/test. Video-disjoint splits are a methodology
+    #    requirement: frame-disjoint splits leak ~0.05–0.15 AUROC.
+    print("[quick] enumerating videos for the disjoint split ...")
+    all_video_ids = _all_video_ids(args)
+    train_vids, val_vids, test_vids = split_videos(
+        all_video_ids,
+        seed=args.seed,
+        val_fraction=args.val_fraction,
+        test_fraction=args.test_fraction,
+    )
+    print(
+        f"[quick] split: train={len(train_vids)} val={len(val_vids)} test={len(test_vids)} "
+        f"(of {len(all_video_ids)} total videos)",
+    )
+
+    # 2. Build three adapters — one per split, with split-specific frame caps.
+    train_ds = _build_dataset(
+        args, subset_video_ids=train_vids, frames_per_video=args.frames_per_video_train,
+    )
+    val_ds = _build_dataset(
+        args, subset_video_ids=val_vids, frames_per_video=args.frames_per_video_eval,
+    )
+    test_ds = _build_dataset(
+        args, subset_video_ids=test_vids, frames_per_video=args.frames_per_video_eval,
+    )
+    print(f"[quick] dataset sizes: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}")
 
     params = PipelineParams(
         n_scales=args.n_scales,
         pde=PdeParams(max_iter=args.max_iter, log_every=20),
     )
 
-    cache_path = args.runs_dir / "features.csv"
-
+    # 3. Extract features for each split independently. Each cache is
+    #    crash-resumable; restarts skip already-processed paths.
     t0 = time.time()
-    val_m, test_m, classifier, _fm = evaluate_pipeline(
-        dataset,
+    print("[quick] extracting features (val) ...")
+    fm_val = extract_features_over_dataset(
+        val_ds,
         device=args.device,
         params=params,
-        val_fraction=args.val_fraction,
-        test_fraction=args.test_fraction,
-        seed=args.seed,
-        cache_path=cache_path,
+        cache_path=args.runs_dir / "features-val.csv",
+    )
+    print("[quick] extracting features (test) ...")
+    fm_test = extract_features_over_dataset(
+        test_ds,
+        device=args.device,
+        params=params,
+        cache_path=args.runs_dir / "features-test.csv",
+    )
+
+    # 4. Either load a pre-trained classifier (cross-dataset eval) or
+    #    extract train features and fit one.
+    if args.classifier_checkpoint is not None:
+        classifier = load_classifier(args.classifier_checkpoint)
+        print(f"[quick] loaded classifier from {args.classifier_checkpoint}")
+        train_size = 0
+    else:
+        print("[quick] extracting features (train) ...")
+        fm_train = extract_features_over_dataset(
+            train_ds,
+            device=args.device,
+            params=params,
+            cache_path=args.runs_dir / "features-train.csv",
+        )
+        train_size = fm_train.features.shape[0]
+        print(f"[quick] training classifier on {train_size} frames ...")
+        classifier = train_classifier(fm_train.features, fm_train.labels)
+        save_classifier(classifier, args.runs_dir / "classifier.pkl")
+
+    val_m = evaluate_classifier(
+        classifier,
+        fm_val.features,
+        fm_val.labels,
+        video_ids=fm_val.video_ids,
+    )
+    test_m = evaluate_classifier(
+        classifier,
+        fm_test.features,
+        fm_test.labels,
+        video_ids=fm_test.video_ids,
     )
     elapsed = time.time() - t0
     print(f"\n[quick] total time: {elapsed:.0f}s")
-
-    # Save classifier and report.
-    classifier_path = args.runs_dir / "classifier.pkl"
-    save_classifier(classifier, classifier_path)
-    print(f"[quick] saved classifier -> {classifier_path}")
 
     report = {
         "phase": "phase-1 heuristic + classifier",
         "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
         "elapsed_seconds": elapsed,
+        "n_videos": {
+            "train": len(train_vids),
+            "val": len(val_vids),
+            "test": len(test_vids),
+        },
+        "n_frames": {
+            "train": train_size,
+            "val": fm_val.features.shape[0],
+            "test": fm_test.features.shape[0],
+        },
         "val": {
-            "auroc": val_m.auroc,
-            "accuracy": val_m.accuracy,
-            "n_real": val_m.n_real,
-            "n_fake": val_m.n_fake,
+            "frame_auroc": val_m.auroc,
+            "frame_accuracy": val_m.accuracy,
+            "video_auroc_mean": val_m.video_auroc_mean,
+            "video_auroc_max": val_m.video_auroc_max,
+            "n_videos": val_m.n_videos,
         },
         "test": {
-            "auroc": test_m.auroc,
-            "accuracy": test_m.accuracy,
-            "n_real": test_m.n_real,
-            "n_fake": test_m.n_fake,
+            "frame_auroc": test_m.auroc,
+            "frame_accuracy": test_m.accuracy,
+            "video_auroc_mean": test_m.video_auroc_mean,
+            "video_auroc_max": test_m.video_auroc_max,
+            "n_videos": test_m.n_videos,
             "top_features": dict(
                 sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:10],
             ),
@@ -189,22 +350,38 @@ def main() -> int:
     print(f"[quick] saved report -> {report_path}")
 
     print("\n=== Phase-1 result ===")
-    print(f"  Val  AUROC: {val_m.auroc:.4f}  Accuracy: {val_m.accuracy:.4f}")
-    print(f"  Test AUROC: {test_m.auroc:.4f}  Accuracy: {test_m.accuracy:.4f}")
-    print(f"  Test split: real={test_m.n_real} fake={test_m.n_fake}")
+    print(f"  Frame AUROC  val={val_m.auroc:.4f}  test={test_m.auroc:.4f}")
+    if not math.isnan(test_m.video_auroc_mean):
+        print(
+            f"  Video AUROC  val={val_m.video_auroc_mean:.4f}  "
+            f"test={test_m.video_auroc_mean:.4f}  (mean-pool)",
+        )
+        print(
+            f"               val={val_m.video_auroc_max:.4f}  "
+            f"test={test_m.video_auroc_max:.4f}  (max-pool)",
+        )
+    print(f"  Test split:  videos real={test_m.n_video_real} fake={test_m.n_video_fake}")
     print("  Top 5 features (by GBC importance):")
     for name, imp in sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:5]:
         print(f"    {name:30s} {imp:.4f}")
 
+    # Use video-level AUROC for the rubric — that is the metric the
+    # diploma defense will quote and the literature compares against.
+    headline = (
+        test_m.video_auroc_mean
+        if not math.isnan(test_m.video_auroc_mean)
+        else test_m.auroc
+    )
+    print(f"\nHeadline test AUROC (video-level mean-pool): {headline:.4f}")
     print("\nWhat to do with this number:")
-    print("  AUROC ≥ 0.85  → strong baseline; the heuristic + classifier alone")
-    print("                  is defendable; CNN training is an upgrade, not a")
-    print("                  prerequisite. Phase 2 is optional.")
-    print("  AUROC ~ 0.70  → reasonable but not great; CNN training likely")
-    print("                  helps; consider Phase 2 if you have cluster time.")
-    print("  AUROC ≤ 0.55  → near chance; the math pipeline + heuristic does")
-    print("                  not separate this dataset; revisit assumptions")
-    print("                  before committing to CNN training.")
+    print("  AUROC >= 0.85  -> strong baseline; the heuristic + classifier alone")
+    print("                    is defendable; CNN training is an upgrade, not a")
+    print("                    prerequisite. Phase 2 is optional.")
+    print("  AUROC ~ 0.70   -> reasonable but not great; CNN training likely")
+    print("                    helps; consider Phase 2 if you have cluster time.")
+    print("  AUROC <= 0.55  -> near chance; the math pipeline + heuristic does")
+    print("                    not separate this dataset; revisit assumptions")
+    print("                    before committing to CNN training.")
     return 0
 
 
