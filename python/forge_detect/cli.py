@@ -298,6 +298,21 @@ def _add_eval_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]
     p.add_argument("--n-scales", type=int, default=PipelineParams().n_scales)
 
 
+def _print_metrics_block(label: str, m: Any) -> None:
+    """Render a ClassifierMetrics block with frame and (when present) video AUROC."""
+    import math
+
+    print(f"\n--- {label} ---")
+    print(f"  Frame AUROC:    {m.auroc:.4f}")
+    print(f"  Frame Accuracy: {m.accuracy:.4f}")
+    print(f"  Frames real / fake: {m.n_real} / {m.n_fake}")
+    if m.n_videos > 0 and not math.isnan(m.video_auroc_mean):
+        print(f"  Video AUROC (mean-pool): {m.video_auroc_mean:.4f}")
+        print(f"  Video AUROC (max-pool):  {m.video_auroc_max:.4f}")
+        print(f"  Video Accuracy (mean):   {m.video_accuracy_mean:.4f}")
+        print(f"  Videos real / fake:      {m.n_video_real} / {m.n_video_fake}")
+
+
 def _run_eval(args: argparse.Namespace) -> int:
     from forge_detect.classifier import save_classifier
     from forge_detect.eval import evaluate_pipeline
@@ -313,14 +328,8 @@ def _run_eval(args: argparse.Namespace) -> int:
         cnn_model=cnn_model,
         cnn_device=cnn_device,
     )
-    print("\n--- Validation ---")
-    print(f"  AUROC:    {val_m.auroc:.4f}")
-    print(f"  Accuracy: {val_m.accuracy:.4f}")
-    print(f"  Real / Fake: {val_m.n_real} / {val_m.n_fake}")
-    print("\n--- Test ---")
-    print(f"  AUROC:    {test_m.auroc:.4f}")
-    print(f"  Accuracy: {test_m.accuracy:.4f}")
-    print(f"  Real / Fake: {test_m.n_real} / {test_m.n_fake}")
+    _print_metrics_block("Validation", val_m)
+    _print_metrics_block("Test", test_m)
     print("\nTop 10 features by importance:")
     top = sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:10]
     for name, importance in top:

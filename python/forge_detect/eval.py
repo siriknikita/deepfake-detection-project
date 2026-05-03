@@ -38,11 +38,18 @@ from forge_detect.pipeline import detect
 
 @dataclass
 class FeatureMatrix:
-    """Cached features extracted over a dataset."""
+    """Cached features extracted over a dataset.
+
+    ``video_ids`` is optional — older caches written before video-level
+    pooling was added do not have a ``video_id`` column. When loading
+    such a cache, the field falls back to the parent directory of each
+    path, which matches how the FF++ and Celeb-DF adapters assign ids.
+    """
 
     features: np.ndarray  # (N, F)
     labels: np.ndarray  # (N,)
     paths: list[str]  # source image paths
+    video_ids: list[str] | None = None  # source video id per row
 
     def save(self, path: str | Path) -> None:
         import pandas as pd
@@ -50,6 +57,8 @@ class FeatureMatrix:
         df = pd.DataFrame(self.features, columns=list(FEATURE_NAMES))
         df["label"] = self.labels
         df["path"] = self.paths
+        if self.video_ids is not None:
+            df["video_id"] = self.video_ids
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         df.to_csv(path, index=False)
 
@@ -59,10 +68,18 @@ class FeatureMatrix:
 
         df = pd.read_csv(path)
         feat_cols = list(FEATURE_NAMES)
+        if "video_id" in df.columns:
+            video_ids: list[str] | None = df["video_id"].astype(str).tolist()
+        else:
+            # Fallback: parent dir name of each frame path. Matches the
+            # FaceForensicsAdapter / CelebDFAdapter video_id convention,
+            # so old caches still pool correctly.
+            video_ids = [Path(p).parent.name for p in df["path"].tolist()]
         return cls(
             features=df[feat_cols].to_numpy(dtype=np.float64),
             labels=df["label"].to_numpy(dtype=np.int64),
             paths=df["path"].tolist(),
+            video_ids=video_ids,
         )
 
 
@@ -106,6 +123,7 @@ def extract_features_over_dataset(
     feats: list[np.ndarray] = []
     labels: list[int] = []
     paths: list[str] = []
+    video_ids: list[str] = []
     done_paths: set[str] = set()
 
     if cache_p is not None and cache_p.exists():
@@ -113,6 +131,7 @@ def extract_features_over_dataset(
         feats = list(existing.features)
         labels = list(existing.labels.tolist())
         paths = list(existing.paths)
+        video_ids = list(existing.video_ids) if existing.video_ids is not None else []
         done_paths = set(paths)
         print(f"  resuming from cache: {len(done_paths)} records already processed")
 
@@ -140,6 +159,7 @@ def extract_features_over_dataset(
         feats.append(result.features)
         labels.append(int(label))
         paths.append(path_key)
+        video_ids.append(_record_video_id(dataset, i, fallback=path_key))
         done_paths.add(path_key)
         processed_in_session += 1
 
@@ -155,12 +175,14 @@ def extract_features_over_dataset(
                 features=np.stack(feats),
                 labels=np.asarray(labels, dtype=np.int64),
                 paths=paths,
+                video_ids=video_ids,
             ).save(cache_p)
 
     fm = FeatureMatrix(
         features=np.stack(feats) if feats else np.empty((0, 0), dtype=np.float64),
         labels=np.asarray(labels, dtype=np.int64),
         paths=paths,
+        video_ids=video_ids,
     )
     if cache_p is not None:
         fm.save(cache_p)
@@ -184,6 +206,25 @@ def _record_path_key(dataset: Any, idx: int) -> str:
     if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
         return _record_path_key(dataset.dataset, dataset.indices[idx])
     return f"<idx={idx}>"
+
+
+def _record_video_id(dataset: Any, idx: int, *, fallback: str) -> str:
+    """Stable per-video grouping key for record ``idx``.
+
+    Looks up ``_records[idx].video_id`` if the adapter exposes it
+    (FF++, Celeb-DF, ImageFolder all do post-refactor). For arbitrary
+    iterable datasets we fall back to the parent directory of the
+    record's image path — which matches the convention adapters use,
+    so video-level pooling still works on bespoke datasets.
+    """
+    records = getattr(dataset, "_records", None)
+    if records is not None and idx < len(records):
+        vid = getattr(records[idx], "video_id", None)
+        if vid is not None:
+            return str(vid)
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        return _record_video_id(dataset.dataset, dataset.indices[idx], fallback=fallback)
+    return Path(fallback).parent.name if "/" in fallback or "\\" in fallback else fallback
 
 
 def _to_hwc_float(image: Any) -> np.ndarray:
@@ -251,8 +292,21 @@ def evaluate_pipeline(
     print(f"split: train={len(train_idx)} val={len(val_idx)} test={len(test_idx)}")
 
     pipeline = train_classifier(fm.features[train_idx], fm.labels[train_idx])
-    val_metrics = evaluate_classifier(pipeline, fm.features[val_idx], fm.labels[val_idx])
-    test_metrics = evaluate_classifier(pipeline, fm.features[test_idx], fm.labels[test_idx])
+    # Pass video_ids when available so video-level AUROC is reported alongside
+    # frame-level. Frame-level numbers stay computed regardless.
+    vids = np.asarray(fm.video_ids) if fm.video_ids is not None else None
+    val_metrics = evaluate_classifier(
+        pipeline,
+        fm.features[val_idx],
+        fm.labels[val_idx],
+        video_ids=vids[val_idx] if vids is not None else None,
+    )
+    test_metrics = evaluate_classifier(
+        pipeline,
+        fm.features[test_idx],
+        fm.labels[test_idx],
+        video_ids=vids[test_idx] if vids is not None else None,
+    )
     return val_metrics, test_metrics, pipeline, fm
 
 
