@@ -64,6 +64,13 @@ class TrainingConfig:
     checkpoint_dir: Path = field(default_factory=lambda: Path("runs"))
     grad_clip: float = 1.0
     log_every: int = 50
+    balance_classes: bool = True
+    """If True, train minibatches are drawn with WeightedRandomSampler
+    so each class is sampled proportional to its inverse frequency.
+    The image-level loss in :func:`_supervision_loss` is class-weighted
+    by construction (real vs fake), so on FF++'s ~1:4 imbalance an
+    unbalanced sampler pulls the network toward predicting low trust
+    everywhere; the sampler corrects this without changing the loss."""
 
 
 def _ensure_run_dir(base: Path) -> Path:
@@ -71,6 +78,47 @@ def _ensure_run_dir(base: Path) -> Path:
     run_dir = base / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def _dataset_labels(dataset: Any) -> list[int]:
+    """Pull the per-record label list without loading any images.
+
+    Covers ``FaceForensicsAdapter``/``CelebDFAdapter``/``ImageFolderDataset``
+    (all expose ``_records[i].label``) and ``torch.utils.data.Subset``
+    (recursing through ``.dataset`` and ``.indices``). Falls back to
+    iterating the dataset — slow, but correct — for unknown shapes.
+    """
+    records = getattr(dataset, "_records", None)
+    if records is not None:
+        return [int(r.label) for r in records]
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        sub = _dataset_labels(dataset.dataset)
+        return [sub[i] for i in dataset.indices]
+    return [int(item[1]) for item in dataset]
+
+
+def _make_balanced_sampler(dataset: Any) -> Any:
+    """Build a WeightedRandomSampler that draws samples proportional to
+    the inverse of their class frequency. With binary labels and a 1:4
+    real:fake ratio, real samples are drawn ~4x as often as before, so
+    each minibatch sees roughly equal numbers of each class on average.
+    """
+    import numpy as np
+
+    torch = _torch()
+    from torch.utils.data import WeightedRandomSampler
+
+    labels = np.asarray(_dataset_labels(dataset), dtype=np.int64)
+    counts = np.bincount(labels, minlength=2)
+    if counts.min() == 0:
+        # Single-class subset (e.g. all-real eval split) — sampler is a no-op.
+        return None
+    weights = 1.0 / counts[labels]
+    return WeightedRandomSampler(
+        weights=torch.as_tensor(weights, dtype=torch.double),
+        num_samples=len(labels),
+        replacement=True,
+    )
 
 
 def _supervision_loss(
@@ -266,7 +314,7 @@ def train_cnn(
         ``{"history": [...], "run_dir": str}``.
     """
     torch = _torch()
-    from torch.utils.data import DataLoader
+    from torch.utils.data import DataLoader, WeightedRandomSampler
 
     from forge_detect.cnn import build_chromatic_efficientnet, save_weights
 
@@ -293,10 +341,12 @@ def train_cnn(
         scaler=scaler,
     )
 
+    train_sampler = _make_balanced_sampler(train_dataset) if config.balance_classes else None
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
         num_workers=config.num_workers,
         collate_fn=_collate,
         pin_memory=(device == "cuda"),

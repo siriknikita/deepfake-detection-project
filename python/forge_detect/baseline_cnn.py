@@ -80,6 +80,9 @@ class BaselineConfig:
     val_every: int = 1
     checkpoint_dir: Path = field(default_factory=lambda: Path("runs_baseline"))
     grad_clip: float = 1.0
+    balance_classes: bool = True
+    """If True, train minibatches use WeightedRandomSampler to compensate
+    the FF++ 1:4 real:fake imbalance. See ``train.TrainingConfig``."""
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
@@ -233,6 +236,8 @@ def train_baseline_cnn(
     torch = _torch()
     from torch.utils.data import DataLoader
 
+    from forge_detect.train import _make_balanced_sampler
+
     config = config or BaselineConfig()
     device = _select_device(config.device)
     print(f"[baseline-cnn] training on device={device} for {config.epochs} epochs")
@@ -256,10 +261,12 @@ def train_baseline_cnn(
         scaler=scaler,
     )
 
+    train_sampler = _make_balanced_sampler(train_dataset) if config.balance_classes else None
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.batch_size,
-        shuffle=True,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
         num_workers=config.num_workers,
         collate_fn=_collate,
         pin_memory=(device == "cuda"),
