@@ -94,6 +94,18 @@ physics. We implement the math kernels in Rust (PyO3, ndarray, rayon) for
 the CPU path and mirror them in PyTorch for GPU execution, exposing a
 single device-agnostic API to the orchestrator.
 
+We evaluate the framework empirically on FaceForensics++ (c23) and the
+Celeb-DF v2 cross-dataset benchmark with the deterministic heuristic
+trust map (Phase 1). The math pipeline alone exhibits systematically
+anti-correlated below-chance ranking on FF++ (test video AUROC $0.347$
+across all manipulation methods, $0.325$–$0.424$ per method) and
+chance-level cross-dataset transfer to Celeb-DF (video AUROC $0.500$
+on the canonical 518-video benchmark). Per-class feature means differ
+by under $3%$ on average, indicating that with the heuristic trust map
+the deterministic features alone do not discriminate; this establishes
+a clean baseline against which Phase 2's learned trust map is to be
+evaluated.
+
 #v(1em)
 #emph[Keywords:] deepfake detection, physical manifold, Euler-Lagrange,
 Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
@@ -121,3 +133,4 @@ Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
 #include "sections/07-phase6-impact.typ"
 #include "sections/08-algorithm.typ"
 #include "sections/09-implementation.typ"
+#include "sections/10-empirical.typ"
