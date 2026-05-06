@@ -184,6 +184,7 @@ def _run_pipeline_eval(
             cnn_model=cnn_model,
             cnn_device=cnn_device,
             cache_path=cache_path,
+            num_workers=args.num_workers,
         )
 
     t0 = time.time()

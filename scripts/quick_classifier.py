@@ -210,6 +210,16 @@ def main() -> int:
             "dataset eval against Celeb-DF after FF++ training."
         ),
     )
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=0,
+        help=(
+            "DataLoader worker processes for parallel image decoding. "
+            "0 (default) preserves the synchronous behaviour. Set to 4 "
+            "for ~2–3× speedup on the 256×256 + PDE workload."
+        ),
+    )
     args = parser.parse_args()
 
     args.runs_dir.mkdir(parents=True, exist_ok=True)
@@ -244,40 +254,64 @@ def main() -> int:
         f"(of {len(all_video_ids)} total videos)",
     )
 
-    # 2. Build three adapters — one per split, with split-specific frame caps.
-    train_ds = _build_dataset(
-        args, subset_video_ids=train_vids, frames_per_video=args.frames_per_video_train,
+    # 2. Build adapters only for non-empty splits (a checkpoint cross-dataset
+    #    eval can omit train; an extreme test_fraction can omit val).
+    train_ds = (
+        _build_dataset(
+            args, subset_video_ids=train_vids, frames_per_video=args.frames_per_video_train,
+        )
+        if train_vids
+        else None
     )
-    val_ds = _build_dataset(
-        args, subset_video_ids=val_vids, frames_per_video=args.frames_per_video_eval,
+    val_ds = (
+        _build_dataset(
+            args, subset_video_ids=val_vids, frames_per_video=args.frames_per_video_eval,
+        )
+        if val_vids
+        else None
     )
-    test_ds = _build_dataset(
-        args, subset_video_ids=test_vids, frames_per_video=args.frames_per_video_eval,
+    test_ds = (
+        _build_dataset(
+            args, subset_video_ids=test_vids, frames_per_video=args.frames_per_video_eval,
+        )
+        if test_vids
+        else None
     )
-    print(f"[quick] dataset sizes: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}")
+    print(
+        f"[quick] dataset sizes: "
+        f"train={len(train_ds) if train_ds is not None else 0} "
+        f"val={len(val_ds) if val_ds is not None else 0} "
+        f"test={len(test_ds) if test_ds is not None else 0}",
+    )
 
     params = PipelineParams(
         n_scales=args.n_scales,
         pde=PdeParams(max_iter=args.max_iter, log_every=20),
     )
 
-    # 3. Extract features for each split independently. Each cache is
+    # 3. Extract features for each non-empty split. Each cache is
     #    crash-resumable; restarts skip already-processed paths.
     t0 = time.time()
-    print("[quick] extracting features (val) ...")
-    fm_val = extract_features_over_dataset(
-        val_ds,
-        device=args.device,
-        params=params,
-        cache_path=args.runs_dir / "features-val.csv",
-    )
-    print("[quick] extracting features (test) ...")
-    fm_test = extract_features_over_dataset(
-        test_ds,
-        device=args.device,
-        params=params,
-        cache_path=args.runs_dir / "features-test.csv",
-    )
+    fm_val = None
+    if val_ds is not None:
+        print("[quick] extracting features (val) ...")
+        fm_val = extract_features_over_dataset(
+            val_ds,
+            device=args.device,
+            params=params,
+            cache_path=args.runs_dir / "features-val.csv",
+            num_workers=args.num_workers,
+        )
+    fm_test = None
+    if test_ds is not None:
+        print("[quick] extracting features (test) ...")
+        fm_test = extract_features_over_dataset(
+            test_ds,
+            device=args.device,
+            params=params,
+            cache_path=args.runs_dir / "features-test.csv",
+            num_workers=args.num_workers,
+        )
 
     # 4. Either load a pre-trained classifier (cross-dataset eval) or
     #    extract train features and fit one.
@@ -286,32 +320,52 @@ def main() -> int:
         print(f"[quick] loaded classifier from {args.classifier_checkpoint}")
         train_size = 0
     else:
+        if train_ds is None:
+            msg = "no train videos in split and no --classifier-checkpoint provided"
+            raise SystemExit(msg)
         print("[quick] extracting features (train) ...")
         fm_train = extract_features_over_dataset(
             train_ds,
             device=args.device,
             params=params,
             cache_path=args.runs_dir / "features-train.csv",
+            num_workers=args.num_workers,
         )
         train_size = fm_train.features.shape[0]
         print(f"[quick] training classifier on {train_size} frames ...")
         classifier = train_classifier(fm_train.features, fm_train.labels)
         save_classifier(classifier, args.runs_dir / "classifier.pkl")
 
-    val_m = evaluate_classifier(
-        classifier,
-        fm_val.features,
-        fm_val.labels,
-        video_ids=fm_val.video_ids,
+    val_m = (
+        evaluate_classifier(classifier, fm_val.features, fm_val.labels, video_ids=fm_val.video_ids)
+        if fm_val is not None
+        else None
     )
-    test_m = evaluate_classifier(
-        classifier,
-        fm_test.features,
-        fm_test.labels,
-        video_ids=fm_test.video_ids,
+    test_m = (
+        evaluate_classifier(
+            classifier, fm_test.features, fm_test.labels, video_ids=fm_test.video_ids,
+        )
+        if fm_test is not None
+        else None
     )
     elapsed = time.time() - t0
     print(f"\n[quick] total time: {elapsed:.0f}s")
+
+    def _split_block(m: Any | None, fm: Any | None, *, with_top_features: bool = False) -> Any:
+        if m is None or fm is None:
+            return None
+        block = {
+            "frame_auroc": m.auroc,
+            "frame_accuracy": m.accuracy,
+            "video_auroc_mean": m.video_auroc_mean,
+            "video_auroc_max": m.video_auroc_max,
+            "n_videos": m.n_videos,
+        }
+        if with_top_features:
+            block["top_features"] = dict(
+                sorted(m.feature_importances.items(), key=lambda kv: -kv[1])[:10],
+            )
+        return block
 
     report = {
         "phase": "phase-1 heuristic + classifier",
@@ -324,53 +378,50 @@ def main() -> int:
         },
         "n_frames": {
             "train": train_size,
-            "val": fm_val.features.shape[0],
-            "test": fm_test.features.shape[0],
+            "val": fm_val.features.shape[0] if fm_val is not None else 0,
+            "test": fm_test.features.shape[0] if fm_test is not None else 0,
         },
-        "val": {
-            "frame_auroc": val_m.auroc,
-            "frame_accuracy": val_m.accuracy,
-            "video_auroc_mean": val_m.video_auroc_mean,
-            "video_auroc_max": val_m.video_auroc_max,
-            "n_videos": val_m.n_videos,
-        },
-        "test": {
-            "frame_auroc": test_m.auroc,
-            "frame_accuracy": test_m.accuracy,
-            "video_auroc_mean": test_m.video_auroc_mean,
-            "video_auroc_max": test_m.video_auroc_max,
-            "n_videos": test_m.n_videos,
-            "top_features": dict(
-                sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:10],
-            ),
-        },
+        "val": _split_block(val_m, fm_val),
+        "test": _split_block(test_m, fm_test, with_top_features=True),
     }
     report_path = args.runs_dir / "report.json"
     report_path.write_text(json.dumps(report, indent=2, default=str))
     print(f"[quick] saved report -> {report_path}")
 
+    def _fmt_auroc(m: Any | None, attr: str) -> str:
+        if m is None:
+            return "  n/a "
+        v = getattr(m, attr)
+        return f"{v:.4f}" if not math.isnan(v) else "  nan "
+
     print("\n=== Phase-1 result ===")
-    print(f"  Frame AUROC  val={val_m.auroc:.4f}  test={test_m.auroc:.4f}")
-    if not math.isnan(test_m.video_auroc_mean):
+    print(
+        f"  Frame AUROC  val={_fmt_auroc(val_m, 'auroc')}  "
+        f"test={_fmt_auroc(test_m, 'auroc')}",
+    )
+    if test_m is not None and not math.isnan(test_m.video_auroc_mean):
         print(
-            f"  Video AUROC  val={val_m.video_auroc_mean:.4f}  "
-            f"test={test_m.video_auroc_mean:.4f}  (mean-pool)",
+            f"  Video AUROC  val={_fmt_auroc(val_m, 'video_auroc_mean')}  "
+            f"test={_fmt_auroc(test_m, 'video_auroc_mean')}  (mean-pool)",
         )
         print(
-            f"               val={val_m.video_auroc_max:.4f}  "
-            f"test={test_m.video_auroc_max:.4f}  (max-pool)",
+            f"               val={_fmt_auroc(val_m, 'video_auroc_max')}  "
+            f"test={_fmt_auroc(test_m, 'video_auroc_max')}  (max-pool)",
         )
-    print(f"  Test split:  videos real={test_m.n_video_real} fake={test_m.n_video_fake}")
-    print("  Top 5 features (by GBC importance):")
-    for name, imp in sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:5]:
-        print(f"    {name:30s} {imp:.4f}")
+    if test_m is not None:
+        print(
+            f"  Test split:  videos real={test_m.n_video_real} fake={test_m.n_video_fake}",
+        )
+        print("  Top 5 features (by GBC importance):")
+        for name, imp in sorted(test_m.feature_importances.items(), key=lambda kv: -kv[1])[:5]:
+            print(f"    {name:30s} {imp:.4f}")
 
     # Use video-level AUROC for the rubric — that is the metric the
     # diploma defense will quote and the literature compares against.
     headline = (
         test_m.video_auroc_mean
-        if not math.isnan(test_m.video_auroc_mean)
-        else test_m.auroc
+        if test_m is not None and not math.isnan(test_m.video_auroc_mean)
+        else (test_m.auroc if test_m is not None else float("nan"))
     )
     print(f"\nHeadline test AUROC (video-level mean-pool): {headline:.4f}")
     print("\nWhat to do with this number:")
