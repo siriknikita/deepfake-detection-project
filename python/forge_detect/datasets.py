@@ -68,6 +68,86 @@ FF_METHODS: tuple[str, ...] = (
 
 FF_COMPRESSIONS: tuple[str, ...] = ("raw", "c23", "c40")
 
+# Physics-map cache variants. Keep in sync with scripts/cache_physics_maps.py.
+PHYSICS_VARIANTS: tuple[str, ...] = ("heuristic", "gtmask")
+PHYSICS_NPZ_KEYS: tuple[str, ...] = ("wcnn", "z_star", "residual")
+_PHYSICS_EPS = 1.0e-6
+
+
+def physics_npz_path(image_path: Path, variant: str) -> Path:
+    """Locate the physics npz for an image laid out as ``.../frames/<vid>/<frame>.<ext>``.
+
+    Maps that path to ``.../physics_<variant>/<vid>/<frame>.npz`` — a sibling
+    of the frames tree. The caching script writes here; the adapters read
+    from here.
+    """
+    if variant not in PHYSICS_VARIANTS:
+        msg = f"physics variant must be one of {PHYSICS_VARIANTS}, got {variant!r}"
+        raise ValueError(msg)
+    if image_path.parent.parent.name != "frames":
+        msg = (
+            f"image path {image_path} does not match the expected "
+            "<...>/frames/<video_id>/<frame>.<ext> layout — cannot derive "
+            "the physics-map cache location"
+        )
+        raise ValueError(msg)
+    return (
+        image_path.parent.parent.parent
+        / f"physics_{variant}"
+        / image_path.parent.name
+        / (image_path.stem + ".npz")
+    )
+
+
+def load_physics_maps_concat(
+    image_chw: np.ndarray, npz_path: Path,
+) -> np.ndarray:
+    """Load `(wcnn, z_star, residual)` from npz, normalize each, concat to RGB.
+
+    Returns a ``(6, H, W)`` float32 array. ``image_chw`` must be the
+    ``(3, H, W)`` RGB tensor in ``[0, 1]`` produced by
+    :func:`load_image_chw` so the spatial dimensions match the cached maps.
+    Raises ``FileNotFoundError`` with an actionable message if the cache is
+    missing, and ``ValueError`` if the cached maps don't match the image
+    resolution (the cache must have been built at the same target_size).
+    """
+    if not npz_path.exists():
+        msg = (
+            f"physics-map cache not found at {npz_path}. Run "
+            "`python scripts/cache_physics_maps.py` first; the script writes "
+            "to this exact path"
+        )
+        raise FileNotFoundError(msg)
+    _, h, w = image_chw.shape
+    with np.load(npz_path) as f:
+        try:
+            wcnn = np.asarray(f["wcnn"], dtype=np.float32)
+            z_star = np.asarray(f["z_star"], dtype=np.float32)
+            residual = np.asarray(f["residual"], dtype=np.float32)
+        except KeyError as e:
+            msg = (
+                f"physics-map cache at {npz_path} is missing key {e}; "
+                f"expected keys: {PHYSICS_NPZ_KEYS}"
+            )
+            raise ValueError(msg) from e
+    if wcnn.shape != (h, w) or z_star.shape != (h, w) or residual.shape != (h, w):
+        msg = (
+            f"physics maps in {npz_path} have shape {wcnn.shape} but image is "
+            f"({h}, {w}); rebuild the cache with the same image_size"
+        )
+        raise ValueError(msg)
+    # Per-image normalisation. Pre-image scale info is intentionally dropped:
+    # for these maps the spatial pattern is informative, the absolute scale is
+    # not, and per-image scaling cancels cross-image drift from compression /
+    # solver convergence variance.
+    wcnn = np.clip(wcnn, 0.0, 1.0)
+    z_min, z_max = float(z_star.min()), float(z_star.max())
+    z_norm = (z_star - z_min) / max(z_max - z_min, _PHYSICS_EPS)
+    r_std = max(float(residual.std()), _PHYSICS_EPS)
+    r_norm = (np.tanh(residual / r_std) + 1.0) * 0.5
+    physics = np.stack([wcnn, z_norm, r_norm], axis=0).astype(np.float32, copy=False)
+    return np.concatenate([image_chw, physics], axis=0)
+
 
 def _list_images(root: Path) -> list[Path]:
     return sorted(
@@ -182,13 +262,31 @@ class FaceForensicsAdapter(Dataset):
         target_size: tuple[int, int] | None = None,
         subset_video_ids: Iterable[str] | None = None,
         ff_split: str | None = None,
+        load_physics_maps: bool = False,
+        physics_variant: str = "heuristic",
     ) -> None:
+        """Args (extension):
+
+        load_physics_maps: If True, ``__getitem__`` returns a 6-channel image
+            ``(3 RGB + 3 physics)``. Cached physics maps (W_cnn, z*, R) must
+            already exist alongside the frames — see
+            ``scripts/cache_physics_maps.py``. Missing maps raise loudly.
+        physics_variant: ``"heuristic"`` (default) loads the chromatic-residual
+            trust-map variant; ``"gtmask"`` loads the GT-mask-derived variant
+            for fakes (and falls back to heuristic for reals, which have no
+            mask). Used only when ``load_physics_maps=True``.
+        """
         self.root = Path(root)
         if compression not in FF_COMPRESSIONS:
             msg = f"compression must be one of {FF_COMPRESSIONS}, got {compression!r}"
             raise ValueError(msg)
+        if physics_variant not in PHYSICS_VARIANTS:
+            msg = f"physics_variant must be one of {PHYSICS_VARIANTS}, got {physics_variant!r}"
+            raise ValueError(msg)
         self.compression = compression
         self.target_size = target_size
+        self.load_physics_maps = load_physics_maps
+        self.physics_variant = physics_variant
 
         # Resolve the subset filter: if `ff_split` is set, intersect its
         # videos with `subset_video_ids` (when both are given).
@@ -275,6 +373,16 @@ class FaceForensicsAdapter(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int, torch.Tensor | None]:
         rec = self._records[idx]
         arr = load_image_chw(rec.image_path, self.target_size)
+        if self.load_physics_maps:
+            # Reals have no GT mask, so the gtmask variant has nothing to
+            # offer them — they always read from the heuristic cache. Fakes
+            # honor the configured variant.
+            variant = (
+                self.physics_variant if rec.label == 1 else "heuristic"
+            )
+            arr = load_physics_maps_concat(
+                arr, physics_npz_path(rec.image_path, variant),
+            )
         import torch
 
         image = torch.from_numpy(arr)
@@ -378,9 +486,18 @@ class CelebDFAdapter(Dataset):
         target_size: tuple[int, int] | None = None,
         testing_list: bool | str | Path = False,
         subset_video_ids: Iterable[str] | None = None,
+        load_physics_maps: bool = False,
     ) -> None:
+        """Args (extension):
+
+        load_physics_maps: If True, return 6-channel images with cached
+            physics maps concatenated to RGB. Celeb-DF has no GT manipulation
+            masks, so only the ``heuristic`` variant is supported here —
+            see :class:`FaceForensicsAdapter` for the gtmask variant.
+        """
         self.root = Path(root)
         self.target_size = target_size
+        self.load_physics_maps = load_physics_maps
 
         keep_videos: set[str] | None = None
         if testing_list:
@@ -451,6 +568,10 @@ class CelebDFAdapter(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         rec = self._records[idx]
         arr = load_image_chw(rec.image_path, self.target_size)
+        if self.load_physics_maps:
+            arr = load_physics_maps_concat(
+                arr, physics_npz_path(rec.image_path, "heuristic"),
+            )
         import torch
 
         return torch.from_numpy(arr), rec.label
@@ -558,14 +679,18 @@ def split_videos(
 __all__ = [
     "CELEB_SUBSETS_FAKE",
     "CELEB_SUBSETS_REAL",
-    "CelebDFAdapter",
     "FF_COMPRESSIONS",
     "FF_METHODS",
+    "PHYSICS_NPZ_KEYS",
+    "PHYSICS_VARIANTS",
+    "CelebDFAdapter",
     "FaceForensicsAdapter",
     "ImageFolderDataset",
     "load_celeb_testing_list",
     "load_ff_split",
     "load_image_chw",
+    "load_physics_maps_concat",
+    "physics_npz_path",
     "split_videos",
     "stratified_split",
 ]

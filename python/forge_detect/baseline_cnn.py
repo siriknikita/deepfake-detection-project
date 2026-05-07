@@ -66,6 +66,68 @@ def build_baseline_classifier(*, pretrained: bool = True) -> Any:
     return model
 
 
+def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -> Any:
+    """EfficientNet-B0 with a 1-logit binary head and a stem-surgery first conv.
+
+    The first conv is replaced with one that takes ``in_channels`` (default 6:
+    RGB + W_cnn + z* + R). When ``pretrained=True``, the original RGB stem
+    weights are copied into the first three input channels, and the remaining
+    channels are initialised by the per-output-channel mean of those RGB
+    weights. This keeps the network's epoch-0 behavior near-identical to the
+    pretrained baseline while opening a path for the new channels to learn
+    their own discriminative features.
+    """
+    torch = _torch()
+    from torch import nn
+    from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
+
+    weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
+    model = efficientnet_b0(weights=weights)
+    in_features = model.classifier[-1].in_features
+    model.classifier = nn.Sequential(
+        nn.Dropout(p=0.2, inplace=True),
+        nn.Linear(in_features, 1),
+    )
+
+    # Stem surgery. torchvision's EfficientNet-B0 stem is
+    #   features[0] = ConvNormActivation(3 -> 32, 3x3, stride=2, bias=False).
+    # Replace the inner Conv2d, preserving the same kernel/stride/padding/bias
+    # spec so the rest of the block (BN, SiLU) keeps its expected input shape.
+    old_conv = model.features[0][0]
+    if not isinstance(old_conv, nn.Conv2d):
+        msg = f"unexpected stem layer type {type(old_conv).__name__}; torchvision API changed?"
+        raise RuntimeError(msg)
+    # nn.Conv2d's typed signature wants tuple[int, int] (or int) for these.
+    # The runtime values from `old_conv` are already 2-tuples on Conv2d, but
+    # the static type is tuple[int, ...] — cast to satisfy mypy.
+    from typing import cast
+
+    new_conv = nn.Conv2d(
+        in_channels=in_channels,
+        out_channels=old_conv.out_channels,
+        kernel_size=cast("tuple[int, int]", old_conv.kernel_size),
+        stride=cast("tuple[int, int]", old_conv.stride),
+        padding=cast("tuple[int, int]", old_conv.padding),
+        bias=old_conv.bias is not None,
+    )
+    with torch.no_grad():
+        old_w = old_conv.weight.data  # (out, 3, kH, kW)
+        new_w = new_conv.weight.data  # (out, in_channels, kH, kW)
+        if pretrained and in_channels >= 3:
+            new_w[:, :3] = old_w
+            if in_channels > 3:
+                # Per-output-channel mean of the RGB kernels gives the new
+                # channels a neutral, ImageNet-consistent starting point.
+                rgb_mean = old_w.mean(dim=1, keepdim=True)  # (out, 1, kH, kW)
+                new_w[:, 3:] = rgb_mean.expand(-1, in_channels - 3, -1, -1) / max(
+                    1, in_channels - 3,
+                )
+        if old_conv.bias is not None and new_conv.bias is not None:
+            new_conv.bias.data.copy_(old_conv.bias.data)
+    model.features[0][0] = new_conv
+    return model
+
+
 @dataclass
 class BaselineConfig:
     """Hyperparameters for :func:`train_baseline_cnn`."""
@@ -86,6 +148,11 @@ class BaselineConfig:
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
+    """Stack ``(image, label[, mask])`` records, dropping any optional fields.
+
+    The 6-channel physics dataset still returns ``(image, label, mask?)`` —
+    mask is unused by the binary classifier and discarded here.
+    """
     torch = _torch()
     images = torch.stack([b[0] for b in batch], dim=0)
     labels = torch.tensor([b[1] for b in batch], dtype=torch.float32)
@@ -198,15 +265,16 @@ def _maybe_resume(
     optimizer: Any,
     scheduler: Any,
     scaler: Any | None,
+    log_tag: str = "baseline-cnn",
 ) -> tuple[int, float, list[dict[str, float]]]:
     torch = _torch()
     if resume_dir is None:
         return 0, float("inf"), []
     ckpt_path = resume_dir / "checkpoint.pt"
     if not ckpt_path.exists():
-        print(f"[baseline-cnn] no checkpoint at {ckpt_path} — starting fresh")
+        print(f"[{log_tag}] no checkpoint at {ckpt_path} — starting fresh")
         return 0, float("inf"), []
-    print(f"[baseline-cnn] resuming from {ckpt_path}")
+    print(f"[{log_tag}] resuming from {ckpt_path}")
     payload = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     model.load_state_dict(payload["model"])
     optimizer.load_state_dict(payload["optimizer"])
@@ -227,11 +295,24 @@ def train_baseline_cnn(
     *,
     pretrained: bool = True,
     resume_dir: Path | None = None,
+    model_factory: Any | None = None,
+    log_tag: str = "baseline-cnn",
 ) -> dict[str, list[dict[str, float]] | str]:
-    """Train the pure-CNN baseline with crash-resumable checkpoints.
+    """Train a binary CNN classifier with crash-resumable checkpoints.
 
     See :func:`forge_detect.train.train_cnn` for the resume semantics —
     this function uses the same conventions.
+
+    Args:
+        model_factory: Callable ``(*, pretrained: bool) -> nn.Module`` that
+            returns the model to train. Defaults to
+            :func:`build_baseline_classifier` (3-channel RGB EfficientNet-B0).
+            Pass :func:`build_physics_classifier` (or any compatible factory)
+            for the 6-channel physics-tensor variant — the loss / sampler /
+            optimizer / eval logic is identical, only the model + dataset
+            channel count differ.
+        log_tag: Prefix for every line printed by this function. Helpful when
+            running baseline + physics runs side by side.
     """
     torch = _torch()
     from torch.utils.data import DataLoader
@@ -240,9 +321,10 @@ def train_baseline_cnn(
 
     config = config or BaselineConfig()
     device = _select_device(config.device)
-    print(f"[baseline-cnn] training on device={device} for {config.epochs} epochs")
+    factory = model_factory if model_factory is not None else build_baseline_classifier
+    print(f"[{log_tag}] training on device={device} for {config.epochs} epochs")
 
-    model = build_baseline_classifier(
+    model = factory(
         pretrained=(pretrained and resume_dir is None),
     ).to(device)
     optimizer = torch.optim.AdamW(
@@ -259,6 +341,7 @@ def train_baseline_cnn(
         optimizer=optimizer,
         scheduler=scheduler,
         scaler=scaler,
+        log_tag=log_tag,
     )
 
     train_sampler = _make_balanced_sampler(train_dataset) if config.balance_classes else None
@@ -292,7 +375,7 @@ def train_baseline_cnn(
     (run_dir / "config.json").write_text(json.dumps(asdict(config), default=str, indent=2))
 
     if start_epoch >= config.epochs:
-        print(f"[baseline-cnn] resumed run already at epoch {start_epoch} >= {config.epochs}")
+        print(f"[{log_tag}] resumed run already at epoch {start_epoch} >= {config.epochs}")
         return {"history": history, "run_dir": str(run_dir)}
 
     for epoch in range(start_epoch, config.epochs):
@@ -328,7 +411,7 @@ def train_baseline_cnn(
         scheduler.step()
         log["epoch_seconds"] = time.time() - t0
         history.append(log)
-        print(f"[baseline-cnn] epoch {epoch}: " + " ".join(f"{k}={v:.4f}" for k, v in log.items()))
+        print(f"[{log_tag}] epoch {epoch}: " + " ".join(f"{k}={v:.4f}" for k, v in log.items()))
         (run_dir / "history.json").write_text(json.dumps(history, indent=2))
         _save_full_checkpoint(
             run_dir / "checkpoint.pt",
@@ -352,7 +435,14 @@ def evaluate_baseline_cnn(
     batch_size: int = 32,
     num_workers: int = 4,
 ) -> dict[str, float]:
-    """Evaluate a trained baseline CNN on a (image, label) dataset → AUROC + accuracy."""
+    """Evaluate a trained binary CNN on a labeled dataset.
+
+    Returns frame-level AUROC + accuracy; when the dataset's records expose
+    a ``video_id`` field (FaceForensicsAdapter, CelebDFAdapter,
+    ImageFolderDataset all do), also returns video-level AUROC under both
+    mean-pooling and max-pooling. Mean-pool is the cross-dataset benchmark
+    convention; max-pool is reported alongside as a robustness check.
+    """
     torch = _torch()
     from torch.utils.data import DataLoader
 
@@ -375,10 +465,10 @@ def evaluate_baseline_cnn(
             labels_all.extend(labels.detach().cpu().tolist())
     proba_arr = np.asarray(proba_all)
     labels_arr = np.asarray(labels_all, dtype=np.int64)
-    out = {
+    out: dict[str, float] = {
         "accuracy": float(((proba_arr >= 0.5).astype(np.int64) == labels_arr).mean()),
-        "n_real": int((labels_arr == 0).sum()),
-        "n_fake": int((labels_arr == 1).sum()),
+        "n_real": float((labels_arr == 0).sum()),
+        "n_fake": float((labels_arr == 1).sum()),
     }
     if len(np.unique(labels_arr)) > 1:
         from sklearn.metrics import roc_auc_score
@@ -386,12 +476,46 @@ def evaluate_baseline_cnn(
         out["auroc"] = float(roc_auc_score(labels_arr, proba_arr))
     else:
         out["auroc"] = float("nan")
+
+    video_ids = _dataset_video_ids(dataset)
+    if video_ids is not None and len(video_ids) == len(labels_arr):
+        from forge_detect.classifier import _video_level_metrics
+
+        v = _video_level_metrics(proba_arr, labels_arr, np.asarray(video_ids))
+        out["video_auroc_mean"] = v["auroc_mean"]
+        out["video_auroc_max"] = v["auroc_max"]
+        out["video_accuracy_mean"] = v["accuracy_mean"]
+        out["n_videos"] = float(v["n_videos"])
+        out["n_video_real"] = float(v["n_video_real"])
+        out["n_video_fake"] = float(v["n_video_fake"])
     return out
+
+
+def _dataset_video_ids(dataset: Any) -> list[str] | None:
+    """Pull the per-record video_id list without loading any images.
+
+    Returns ``None`` when the dataset does not expose ``_records[i].video_id``;
+    in that case the caller skips video-level pooling. Recurses through
+    ``torch.utils.data.Subset.dataset`` + ``indices`` for sub-sampled splits.
+    """
+    records = getattr(dataset, "_records", None)
+    if records is not None:
+        vids = [getattr(r, "video_id", None) for r in records]
+        if all(v is not None for v in vids):
+            return [str(v) for v in vids]
+        return None
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        sub = _dataset_video_ids(dataset.dataset)
+        if sub is None:
+            return None
+        return [sub[i] for i in dataset.indices]
+    return None
 
 
 __all__ = [
     "BaselineConfig",
     "build_baseline_classifier",
+    "build_physics_classifier",
     "evaluate_baseline_cnn",
     "train_baseline_cnn",
 ]
