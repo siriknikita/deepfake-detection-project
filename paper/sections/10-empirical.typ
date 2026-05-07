@@ -280,18 +280,86 @@ tests it directly.
 These observations do *not* invalidate the framework's mathematical
 foundation. The Euler-Lagrange settlement, the impact map decomposition
 $cal(I) = (R, L)$, and the Lambertian-grounded forge of Section 4 all
-behave as designed; what fails is the *trust map*. The heuristic
-$W_"cnn"$ used here is a residual-statistics function of $I$, oblivious
-to whether a region is real or synthesized. Without a trust map that
-attenuates real-face evidence and preserves manipulation-region
-evidence, the energy functional minimizes equally well on natural noise
-and on manipulation artefacts, so the impact map averages out the
-discriminative signal.
+behave as designed; what fails is the *connection* between the math
+pipeline's spatial output and the eventual scalar score. The
+24-dimensional feature vector that feeds the GBC classifier averages
+the impact map globally — a single number per percentile, per energy
+ratio, per Laplacian moment — and global pooling cannot represent the
+spatial distinction between "high $|R|$ along a manipulated jawline"
+and "high $|R|$ from compression noise". Compression and the synthesis
+boundary contribute residual energy of comparable magnitude under c23,
+so once the spatial pattern is averaged away the discriminative
+information is lost.
 
-The Phase 2 study (Section 11, future work) trains the
-ChromaticEfficientNet of Section 9.4 with mask supervision from the
-FF++ ground-truth manipulation masks, replacing the heuristic
-$W_"cnn"$. The empirical question Phase 2 must answer — and the
-question for which Phase 1 establishes the comparison baseline — is
-whether the learned trust map recovers $> 0.5$ in-domain video AUROC
-and meaningful $> 0.5$ cross-domain transfer to Celeb-DF v2.
+=== Oracle ablation: ruling out the trust map as the failure mode
+
+Before pivoting we ran an *oracle ablation* in which the heuristic
+$W_"cnn"$ was replaced with the FF++ ground-truth manipulation masks
+themselves: $W_"cnn" = 1 - "binarise"("mask")$ on fakes (trust drops to
+zero exactly on the manipulated region), $W_"cnn" = 1$ on reals. This
+configuration provides the math pipeline with *perfect* localisation —
+the upper bound on what any learned trust map could approximate.
+
+The result on FF++ c23 was test frame AUROC $0.370$, test video AUROC
+$0.327$ (mean-pool) — within noise of the heuristic's $0.378 / 0.347$.
+The inversion identity $"AUROC"(p) + "AUROC"(1-p) = 1$ is therefore a
+property of the settlement formulation under c23 compression, not a
+property of trust-map quality. A learned trust map cannot do better
+than the oracle, so the trust-map-supervision Phase 2 plan we
+originally outlined — train a ChromaticEfficientNet to approximate
+the GT-mask weighting, then re-run the GBC over the resulting
+features — has a known ceiling at AUROC $0.37$ and is therefore not
+worth running.
+
+This negative result is itself a contribution. Diagnosing failure to
+the *settlement formulation under compression* (rather than to the
+trust map alone) reframes the problem: a learned component must enter
+the pipeline at a place where it can add signal the formulation
+itself cannot, not at the place where the original framework predicted.
+
+=== Phase 2 reformulation
+
+Section 11 develops the new Phase 2 plan, summarised here. Instead of
+using the math pipeline's output as a *scalar feature source* for a
+classifier, we expose its three spatial maps directly as additional
+*image channels*. Each frame becomes a six-channel tensor — the
+original $(R, G, B)$ image plus the heuristic trust map $W_"cnn"$, the
+settled manifold $z^*$, and the residual $R = z^* - z_"ideal"$ — that
+an EfficientNet-B0 classifier consumes end-to-end. The first
+convolution of the backbone is replaced with a six-input variant whose
+RGB-channel weights are copied from the ImageNet stem and whose three
+extra-channel weights are initialised to the per-output-channel mean
+of the RGB weights, so epoch-zero behaviour matches the standard
+pretrained baseline before the network specialises.
+
+Three runs answer the empirical question:
+
+#set list(marker: ([•]))
+- *Baseline (3-channel RGB)*: vanilla EfficientNet-B0 on RGB only,
+  end-to-end. Establishes the floor an architecturally identical
+  detector achieves without the math pipeline.
+- *Physics 6-channel, heuristic $W_"cnn"$*: RGB + the three physics
+  maps computed with the deterministic chromatic-residual trust map.
+  Operational variant — the trust map is available at inference on
+  any image. Comparing this run to the baseline isolates the
+  contribution of the math pipeline to a learned classifier with no
+  privileged information.
+- *Physics 6-channel, GT-mask $W_"cnn"$*: same architecture, but the
+  PDE is run with the FF++ ground-truth mask as the trust map for
+  every fake frame in train, val, and test (heuristic on reals where
+  no mask exists). FF++-only experiment: GT masks are equally
+  available at evaluation time as at training time, so there is no
+  train/test distribution shift. Reports the upper bound on the
+  combined system's AUROC under perfect localisation supervision.
+
+The empirical question Phase 2 answers is therefore: *given the math
+pipeline produces real but spatially-distributed signal that a
+global-pool classifier cannot use, can a CNN that sees the spatial
+maps as image channels recover the discriminative direction the
+GBC classifier inverted?* If the 6-channel run beats the RGB
+baseline, the math pipeline contributes signal a learned classifier
+finds useful even when the math's own predictions are inverted; if it
+does not, the framework's contribution to deepfake detection is the
+diagnostic methodology (oracle ablation, anti-correlation analysis,
+per-method ablation) and the negative result, rather than a working
+detector.

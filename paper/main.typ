@@ -100,11 +100,19 @@ trust map (Phase 1). The math pipeline alone exhibits systematically
 anti-correlated below-chance ranking on FF++ (test video AUROC $0.347$
 across all manipulation methods, $0.325$–$0.424$ per method) and
 chance-level cross-dataset transfer to Celeb-DF (video AUROC $0.500$
-on the canonical 518-video benchmark). Per-class feature means differ
-by under $3%$ on average, indicating that with the heuristic trust map
-the deterministic features alone do not discriminate; this establishes
-a clean baseline against which Phase 2's learned trust map is to be
-evaluated.
+on the canonical 518-video benchmark). An oracle ablation that
+substitutes the FF++ ground-truth manipulation masks for $W_"cnn"$
+returns the same AUROC ($0.37$ on test), demonstrating that the
+inversion is a property of the settlement formulation under c23
+compression rather than a localisation failure of the trust map. Phase 2
+therefore reframes the role of the math pipeline: rather than feeding
+its scalar features to a classifier, we expose its three spatial maps
+($W_"cnn"$, $z^*$, $R$) as additional channels alongside the original
+RGB image, forming a six-channel physics tensor that an EfficientNet-B0
+classifier consumes end-to-end. The CNN learns the polarity and
+spatial pattern that discriminates manipulations — a capability the
+24-feature global-pool classifier of Phase 1 architecturally cannot
+have.
 
 #v(1em)
 #emph[Keywords:] deepfake detection, physical manifold, Euler-Lagrange,
@@ -134,3 +142,4 @@ Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
 #include "sections/08-algorithm.typ"
 #include "sections/09-implementation.typ"
 #include "sections/10-empirical.typ"
+#include "sections/11-phase2-multichannel.typ"
