@@ -164,15 +164,22 @@ def _trust_map(
 
 
 def _save_npz(path: Path, wcnn: np.ndarray, z_star: np.ndarray, residual: np.ndarray) -> None:
-    """Atomic-ish write: tmp file then rename, so a crash leaves no half-written .npz."""
+    """Atomic-ish write: tmp file then rename, so a crash leaves no half-written .npz.
+
+    Note: ``np.savez_compressed`` auto-appends ``.npz`` to a path argument that
+    doesn't already end in it, which silently sabotages a tmp+rename pattern
+    when the tmp name is e.g. ``foo.npz.tmp``. We pass a file-object instead
+    so the suffix is honoured exactly as given.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
-    np.savez_compressed(
-        tmp,
-        wcnn=wcnn.astype(np.float16, copy=False),
-        z_star=z_star.astype(np.float16, copy=False),
-        residual=residual.astype(np.float16, copy=False),
-    )
+    with tmp.open("wb") as f:
+        np.savez_compressed(
+            f,
+            wcnn=wcnn.astype(np.float16, copy=False),
+            z_star=z_star.astype(np.float16, copy=False),
+            residual=residual.astype(np.float16, copy=False),
+        )
     tmp.replace(path)
 
 
