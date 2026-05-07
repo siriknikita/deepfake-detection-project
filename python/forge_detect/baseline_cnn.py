@@ -228,17 +228,14 @@ class BaselineConfig:
     AUROC=0.5 but is the model learning within the epoch?" — without
     this you only see the epoch average and can't tell whether loss is
     actually trending down batch-to-batch."""
-    freeze_bn: bool = True
-    """Freeze BatchNorm layers in eval mode during training: BN stats stay
-    at their pretrained ImageNet values, batch statistics are not used or
-    accumulated. Standard recipe for fine-tuning a pretrained backbone on
-    a balanced binary task. Without this, BN re-normalises each batch
-    using its own statistics; for a balanced 50/50 real:fake batch this
-    averages away the very real-vs-fake feature differences we need the
-    classifier to discriminate on, leaving the linear head with a
-    label-uncorrelated input and only the bias learns. Symptom: train
-    and val AUROC stuck at 0.5 while val_accuracy bounces wildly with
-    the bias drift."""
+    freeze_bn: bool = False
+    """Reverted to off. Tried this on the BN-stats-mismatch theory; in
+    practice ImageNet running variances don't match FF++ frames closely
+    enough — frozen BN drove logit std to exactly 0 (every image in a
+    batch produced the same logit) and 170/213 parameter tensors stopped
+    receiving gradients (dead-ReLU cascade behind the frozen normalisation).
+    The runtime helper still exists for ablation but the default is off
+    until we have a recipe that actually works without it."""
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
