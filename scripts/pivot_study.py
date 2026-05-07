@@ -151,7 +151,7 @@ def _run_baseline_cnn(
         "checkpoint_dir": run_dir.parent,  # ignored — resume_dir wins
         "balance_classes": not args.no_balance,
         "augment_hflip": not args.no_augment,
-        "freeze_bn": not args.no_freeze_bn,
+        "freeze_bn": args.freeze_bn,
     }
     if args.lr is not None:
         cfg_kwargs["learning_rate"] = args.lr
@@ -378,15 +378,13 @@ def main() -> int:
         "the limited number of unique training videos within a few epochs.",
     )
     parser.add_argument(
-        "--no-freeze-bn",
+        "--freeze-bn",
         action="store_true",
-        help="Allow BatchNorm running statistics to update during training "
-        "(default: frozen at the pretrained ImageNet values). With WRS-"
-        "balanced batches, BN in train mode normalises away the real-vs-fake "
-        "feature differences and the classifier head loses its gradient "
-        "signal — symptom is AUROC stuck at 0.5 with the head bias bouncing "
-        "epoch-to-epoch. Re-enable only after the baseline trains correctly "
-        "and you want to see whether BN tuning helps or hurts on FF++.",
+        help="Force BatchNorm layers into eval mode during training (use the "
+        "pretrained ImageNet running stats, never update them). Off by "
+        "default — freezing was tried as a fix for the BN-mismatch theory "
+        "but on FF++ it drove logit std to 0 and zero-grad'd 168/213 "
+        "tensors via a dead-ReLU cascade. Kept as an ablation flag.",
     )
     parser.add_argument(
         "--use-ff-splits",

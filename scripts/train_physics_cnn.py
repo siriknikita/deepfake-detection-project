@@ -146,7 +146,7 @@ def _train(
         checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
         balance_classes=not args.no_balance,
         augment_hflip=not args.no_augment,
-        freeze_bn=not args.no_freeze_bn,
+        freeze_bn=args.freeze_bn,
         mixed_precision=args.amp,
     )
 
@@ -264,12 +264,11 @@ def main() -> int:
         "preserves RGB / physics-map alignment.",
     )
     parser.add_argument(
-        "--no-freeze-bn",
+        "--freeze-bn",
         action="store_true",
-        help="Allow BatchNorm running stats to update during training "
-        "(default: frozen at pretrained ImageNet values). With WRS-balanced "
-        "batches, train-mode BN normalises away class-discriminative feature "
-        "differences and the classifier head loses its gradient signal.",
+        help="Force BatchNorm layers into eval mode during training. Off by "
+        "default — kept as ablation flag (see pivot_study.py for the "
+        "history).",
     )
     parser.add_argument(
         "--use-ff-splits",
