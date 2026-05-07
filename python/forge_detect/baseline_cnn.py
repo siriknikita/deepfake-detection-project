@@ -177,11 +177,17 @@ class BaselineConfig:
 
     epochs: int = 30
     batch_size: int = 32
-    learning_rate: float = 1.0e-4
-    """Default lowered from 1e-3 to 1e-4. The standard fine-tuning rate for
-    pretrained ImageNet backbones — at 1e-3 with AdamW, training stalled
-    with loss stuck at log(2)≈0.693 and val AUROC at chance. 1e-4 is the
-    leaderboard recipe for FF++."""
+    learning_rate: float = 5.0e-4
+    """5e-4 splits the published FF++ EfficientNet-B0 fine-tuning range
+    (2e-4 to 1e-3). I previously dropped this to 1e-4 thinking the cuDNN
+    error was LR-related, but it was AMP-related — with mixed_precision
+    off (current default) higher LRs are safe. At 1e-4 + cosine annealing
+    over 20 epochs, the effective LR drops fast enough that 4500 steps
+    of diverse FF++ batches don't accumulate enough signal: train_auroc
+    stays at 0.50 across 4+ epochs while the diagnostic happily overfits
+    8 frames in 30 steps with the same LR (because there gradients all
+    point the same way). 5e-4 is 5x faster per step and stays in the
+    leaderboard-validated range."""
     weight_decay: float = 1.0e-4
     device: str = "auto"
     mixed_precision: bool = False
@@ -268,6 +274,7 @@ def _epoch_pass(
     labels_all: list[float] = []
 
     autocast_device = "cuda" if device == "cuda" else "cpu"
+    profiled_first_batch = False
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -277,6 +284,27 @@ def _epoch_pass(
         with ctx:
             logits = model(images).squeeze(-1)  # (B,)
             loss = bce(logits, labels)
+        if train and not profiled_first_batch:
+            # One-shot batch-0 profile — prints input / logit / grad statistics
+            # so we can verify the training loop is doing what the diagnostic
+            # script does. Cheap (one batch per training pass) and immediately
+            # reveals "logits all near zero" / "gradients vanishing" failure
+            # modes that summary metrics hide behind average-over-epoch.
+            with torch.no_grad():
+                lab_mean = float(labels.float().mean().item())
+                img_mean = float(images.mean().item())
+                img_std = float(images.std().item())
+                logit_mean = float(logits.mean().item())
+                logit_std = float(logits.std().item())
+                logit_min = float(logits.min().item())
+                logit_max = float(logits.max().item())
+            print(
+                f"  [profile] batch0: img(mean={img_mean:.3f} std={img_std:.3f}) "
+                f"label_mean={lab_mean:.3f} (=fake fraction; ~0.5 means WRS works) "
+                f"logits(mean={logit_mean:.3f} std={logit_std:.3f} "
+                f"range=[{logit_min:.3f},{logit_max:.3f}])",
+            )
+            profiled_first_batch = True
         # Hard fail on non-finite loss — silent NaNs corrupt optimizer state and
         # produce later cuDNN execution errors that are much harder to diagnose.
         if train and not torch.isfinite(loss):
@@ -296,6 +324,27 @@ def _epoch_pass(
                 scaler.update()
             else:
                 loss.backward()
+                if profiled_first_batch and n_batches == 0:
+                    # Profile gradient health right after backward — counts
+                    # zero-gradient tensors and reports total norm. Matches the
+                    # diagnostic-script output so the two are directly
+                    # comparable.
+                    grad_sq = 0.0
+                    n_grad_params = 0
+                    n_zero_grad = 0
+                    for p in model.parameters():
+                        if p.grad is None:
+                            continue
+                        n_grad_params += 1
+                        g = p.grad.detach()
+                        grad_sq += float((g * g).sum().item())
+                        if (g.abs() < 1.0e-12).all():
+                            n_zero_grad += 1
+                    print(
+                        f"  [profile] batch0 post-backward: |grad|={grad_sq**0.5:.4f} "
+                        f"zero-grad-tensors={n_zero_grad}/{n_grad_params} "
+                        f"loss={loss.item():.4f}",
+                    )
                 torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
                 optimizer.step()
         total_loss += float(loss.item())
