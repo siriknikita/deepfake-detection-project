@@ -5,10 +5,20 @@
 # stops at the first failure, and prints final test AUROCs at the end so
 # you can read off the headline numbers in the morning:
 #
-#   01  extract_faces.py        face crops from frames               (~30 min)
+#   01  extract_faces.py        face crops from existing frames/     (~30 min)
 #   02  pivot_study.py          baseline_3ch trained on face crops   (~25 min)
 #   03  cache_physics_maps.py   physics maps from face crops         (~50 min)
 #   04  train_physics_cnn.py    physics_6ch_heuristic on face crops  (~25 min)
+#
+# Face extraction runs first so a failure there (MTCNN won't load, GPU
+# OOM, no source frames on disk) aborts before any destructive cleanup
+# of the existing physics caches. Cleanup of the obsolete full-frame
+# physics_<variant>/ dirs only happens *after* face extraction
+# succeeds.
+#
+# Frame extraction from raw videos (extract_frames.py) is NOT part of
+# this script. It assumes <DATA_ROOT>/.../<comp>/frames/<vid>/<f>.png
+# already exist — that's what your prior physics-cache run was reading.
 #
 # Total wall-clock: ~2 hours on RTX 3080 Ti / i7-11700KF.
 #
@@ -136,18 +146,31 @@ fi
 log "starting disk state on $DATA_ROOT:"
 df -h "$DATA_ROOT" 2>&1 | sed 's/^/    /' | tee -a "$RUN_LOG" || true
 
-# ── Step 0a: uv sync ─────────────────────────────────────────────────────────
+# ── Step 0: uv sync (required for facenet-pytorch import in step 1) ──────────
 
 if [ "$SKIP_SYNC" != "1" ]; then
     run_step "00-uv-sync" uv sync
 fi
 
-# ── Step 0b: cleanup old full-frame physics caches ──────────────────────────
+# ── Step 1: face extraction ──────────────────────────────────────────────────
 #
-# The face-crop pipeline writes to physics_faces_<variant>/, so the
-# full-frame physics_<variant>/ caches from earlier runs are not used.
-# Removing them frees ~16 GB and avoids hitting the cluster's disk
-# ceiling during the new caching pass.
+# Runs FIRST so any failure (MTCNN/torch import, GPU OOM, missing
+# frames/ source) aborts before we touch the existing physics caches.
+
+run_step "01-extract-faces" \
+    uv run python scripts/extract_faces.py \
+        --data-root "$DATA_ROOT" \
+        --dataset face-forensics --compression c23 \
+        --output-size "$IMAGE_SIZE" --margin "$MARGIN" \
+        --max-frames-per-video "$FRAMES_PER_VIDEO" \
+        --device "$DEVICE"
+
+# ── Step 1b: cleanup old full-frame physics caches ──────────────────────────
+#
+# Now that face crops exist, the full-frame physics_<variant>/ caches
+# from earlier runs are not used by anything downstream. Remove them to
+# free ~16 GB before the face-crop physics caching pass writes its own
+# ~10-15 GB.
 
 if [ "$SKIP_CLEANUP" != "1" ]; then
     hr
@@ -174,16 +197,6 @@ if [ "$SKIP_CLEANUP" != "1" ]; then
     log "post-cleanup disk state:"
     df -h "$DATA_ROOT" 2>&1 | sed 's/^/    /' | tee -a "$RUN_LOG" || true
 fi
-
-# ── Step 1: face extraction ──────────────────────────────────────────────────
-
-run_step "01-extract-faces" \
-    uv run python scripts/extract_faces.py \
-        --data-root "$DATA_ROOT" \
-        --dataset face-forensics --compression c23 \
-        --output-size "$IMAGE_SIZE" --margin "$MARGIN" \
-        --max-frames-per-video "$FRAMES_PER_VIDEO" \
-        --device "$DEVICE"
 
 # ── Step 2: baseline_3ch on face crops ──────────────────────────────────────
 
