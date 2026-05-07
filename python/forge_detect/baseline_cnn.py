@@ -193,9 +193,18 @@ class BaselineConfig:
     val_every: int = 1
     checkpoint_dir: Path = field(default_factory=lambda: Path("runs_baseline"))
     grad_clip: float = 1.0
-    balance_classes: bool = True
-    """If True, train minibatches use WeightedRandomSampler to compensate
-    the FF++ 1:4 real:fake imbalance. See ``train.TrainingConfig``."""
+    balance_classes: bool = False
+    """Default disabled. WeightedRandomSampler forces 50/50 train batches,
+    which makes BatchNorm running statistics drift toward a balanced
+    feature distribution; at eval the natural FF++ ~20/80 real:fake
+    distribution then sees mismatched BN normalisation and val AUROC
+    collapses (observed: train_auroc 0.71 with val_auroc 0.21 after only
+    4 epochs). With BCE-on-logits the 1:4 imbalance is benign — disabling
+    the sampler keeps train and val BN stats aligned and val tracks train."""
+    augment_hflip: bool = True
+    """Random horizontal flip with p=0.5 during training. Pure geometric
+    op, safe for any channel count (RGB or RGB + physics maps); doubles
+    effective dataset diversity at zero compute cost."""
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
@@ -208,6 +217,26 @@ def _collate(batch: list[Any]) -> tuple[Any, Any]:
     images = torch.stack([b[0] for b in batch], dim=0)
     labels = torch.tensor([b[1] for b in batch], dtype=torch.float32)
     return images, labels
+
+
+def _maybe_hflip(images: Any, *, p: float = 0.5) -> Any:
+    """Random horizontal flip applied independently to each image in a batch.
+
+    Operates on ``(B, C, H, W)`` tensors with any channel count — flipping
+    the W axis preserves spatial channel correspondence, which matters for
+    the 6-channel physics tensor where channels 3-5 (W_cnn / z* / R) must
+    remain spatially aligned with channels 0-2 (RGB) post-flip.
+    """
+    torch = _torch()
+    flip_mask = torch.rand(images.shape[0], device=images.device) < p
+    if not flip_mask.any():
+        return images
+    flipped = images.flip(-1)
+    return torch.where(
+        flip_mask.view(-1, 1, 1, 1),
+        flipped,
+        images,
+    )
 
 
 def _epoch_pass(
@@ -235,6 +264,8 @@ def _epoch_pass(
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
+        if train and config.augment_hflip:
+            images = _maybe_hflip(images)
         ctx = torch.amp.autocast(autocast_device) if (scaler is not None and train) else _NullCtx()
         with ctx:
             logits = model(images).squeeze(-1)  # (B,)

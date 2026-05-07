@@ -113,6 +113,8 @@ def _run_baseline_cnn(
         "device": args.device,
         "num_workers": args.num_workers,
         "checkpoint_dir": run_dir.parent,  # ignored — resume_dir wins
+        "balance_classes": args.balance,
+        "augment_hflip": not args.no_augment,
     }
     if args.lr is not None:
         cfg_kwargs["learning_rate"] = args.lr
@@ -322,6 +324,21 @@ def main() -> int:
         "AMP with tight fine-tuning gradients was associated with cuDNN "
         "execution failures and stalled loss. Re-enable once a working "
         "baseline is in hand.",
+    )
+    parser.add_argument(
+        "--balance",
+        action="store_true",
+        help="Re-enable WeightedRandomSampler for 50/50 train batches. Off by "
+        "default — the FF++ ~20/80 real:fake imbalance under WRS makes BN "
+        "running stats drift away from the val distribution and val AUROC "
+        "collapses. BCE-on-logits handles the imbalance fine without WRS.",
+    )
+    parser.add_argument(
+        "--no-augment",
+        action="store_true",
+        help="Disable random horizontal flip augmentation during training. "
+        "Augmentation is on by default — without it, EfficientNet-B0 overfits "
+        "the limited number of unique training videos within a few epochs.",
     )
     parser.add_argument(
         "--baselines",

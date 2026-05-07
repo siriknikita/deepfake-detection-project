@@ -121,7 +121,8 @@ def _train(
         device=args.device,
         num_workers=args.num_workers,
         checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
-        balance_classes=True,
+        balance_classes=args.balance,
+        augment_hflip=not args.no_augment,
         mixed_precision=args.amp,
     )
 
@@ -223,6 +224,20 @@ def main() -> int:
         action="store_true",
         help="Enable fp16 autocast. Off by default — tight fine-tuning "
         "gradients caused cuDNN execution errors with AMP enabled.",
+    )
+    parser.add_argument(
+        "--balance",
+        action="store_true",
+        help="Re-enable WeightedRandomSampler for 50/50 train batches. Off by "
+        "default — without it, BN running stats stay aligned between train "
+        "and val. BCE-on-logits handles the FF++ 1:4 imbalance fine.",
+    )
+    parser.add_argument(
+        "--no-augment",
+        action="store_true",
+        help="Disable random horizontal flip augmentation. Augmentation is on "
+        "by default and works on all 6 channels uniformly — the spatial flip "
+        "preserves RGB / physics-map alignment.",
     )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
