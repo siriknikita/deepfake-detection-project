@@ -46,24 +46,62 @@ def _select_device(prefer: str = "auto") -> str:
     return prefer
 
 
+# ImageNet normalisation stats — torchvision's EfficientNet-B0 IMAGENET1K_V1
+# weights were trained on inputs normalised by these. Skipping this step keeps
+# val AUROC at chance because the pretrained features fire on the wrong
+# distribution. Apply only to RGB channels; physics-map channels (W_cnn, z*, R)
+# are already per-image normalised to [0, 1] and pass through untouched.
+_IMAGENET_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
+_IMAGENET_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
+
+
+def _build_imagenet_normalizer() -> Any:
+    """An nn.Module that subtracts ImageNet mean / divides by ImageNet std on
+    the first three channels of its input, leaving any further channels
+    unchanged. Used as the front layer of every classifier built here.
+    """
+    torch = _torch()
+    from torch import nn
+
+    class _ImageNetNormalize(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            mean = torch.tensor(_IMAGENET_MEAN).view(1, 3, 1, 1)
+            std = torch.tensor(_IMAGENET_STD).view(1, 3, 1, 1)
+            # persistent=False: stats are constants, not learned, and don't
+            # belong in the saved state_dict — keeps best.pt clean.
+            self.register_buffer("mean", mean, persistent=False)
+            self.register_buffer("std", std, persistent=False)
+
+        def forward(self, x: Any) -> Any:
+            rgb = (x[:, :3] - self.mean) / self.std
+            if x.shape[1] > 3:
+                return torch.cat([rgb, x[:, 3:]], dim=1)
+            return rgb
+
+    return _ImageNetNormalize()
+
+
 def build_baseline_classifier(*, pretrained: bool = True) -> Any:
     """Return EfficientNet-B0 with a 1-logit binary head.
 
     The output is a single logit per image (use BCEWithLogitsLoss for
-    training, sigmoid for inference probability).
+    training, sigmoid for inference probability). The model includes an
+    ImageNet-normalisation layer in front of the backbone so callers can
+    feed raw [0, 1] floats from the dataset adapters directly.
     """
     _torch()  # ensure torch is importable before pulling in torchvision
     from torch import nn
     from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
     weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
-    model = efficientnet_b0(weights=weights)
-    in_features = model.classifier[-1].in_features
-    model.classifier = nn.Sequential(
+    backbone = efficientnet_b0(weights=weights)
+    in_features = backbone.classifier[-1].in_features
+    backbone.classifier = nn.Sequential(
         nn.Dropout(p=0.2, inplace=True),
         nn.Linear(in_features, 1),
     )
-    return model
+    return nn.Sequential(_build_imagenet_normalizer(), backbone)
 
 
 def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -> Any:
@@ -76,15 +114,20 @@ def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -
     weights. This keeps the network's epoch-0 behavior near-identical to the
     pretrained baseline while opening a path for the new channels to learn
     their own discriminative features.
+
+    An ImageNet-normalisation layer is prepended to the model so callers can
+    feed raw [0, 1] floats from the dataset adapters; only channels 0-2 (RGB)
+    are normalised, and channels 3+ pass through unchanged because the
+    physics maps are already per-image normalised at load time.
     """
     torch = _torch()
     from torch import nn
     from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
     weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
-    model = efficientnet_b0(weights=weights)
-    in_features = model.classifier[-1].in_features
-    model.classifier = nn.Sequential(
+    backbone = efficientnet_b0(weights=weights)
+    in_features = backbone.classifier[-1].in_features
+    backbone.classifier = nn.Sequential(
         nn.Dropout(p=0.2, inplace=True),
         nn.Linear(in_features, 1),
     )
@@ -93,7 +136,7 @@ def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -
     #   features[0] = ConvNormActivation(3 -> 32, 3x3, stride=2, bias=False).
     # Replace the inner Conv2d, preserving the same kernel/stride/padding/bias
     # spec so the rest of the block (BN, SiLU) keeps its expected input shape.
-    old_conv = model.features[0][0]
+    old_conv = backbone.features[0][0]
     if not isinstance(old_conv, nn.Conv2d):
         msg = f"unexpected stem layer type {type(old_conv).__name__}; torchvision API changed?"
         raise RuntimeError(msg)
@@ -124,8 +167,8 @@ def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -
                 )
         if old_conv.bias is not None and new_conv.bias is not None:
             new_conv.bias.data.copy_(old_conv.bias.data)
-    model.features[0][0] = new_conv
-    return model
+    backbone.features[0][0] = new_conv
+    return nn.Sequential(_build_imagenet_normalizer(), backbone)
 
 
 @dataclass
