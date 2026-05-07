@@ -75,25 +75,38 @@ _PHYSICS_EPS = 1.0e-6
 
 
 def physics_npz_path(image_path: Path, variant: str) -> Path:
-    """Locate the physics npz for an image laid out as ``.../frames/<vid>/<frame>.<ext>``.
+    """Locate the physics npz for an image laid out as ``.../<frames_dir>/<vid>/<frame>.<ext>``.
 
-    Maps that path to ``.../physics_<variant>/<vid>/<frame>.npz`` — a sibling
-    of the frames tree. The caching script writes here; the adapters read
-    from here.
+    Maps that path to a sibling cache directory whose name encodes both the
+    frames directory and the variant, so caches from different sources
+    don't collide:
+
+    - ``frames/X/0001.png`` -> ``physics_<variant>/X/0001.npz``
+    - ``frames_faces/X/0001.png`` -> ``physics_faces_<variant>/X/0001.npz``
+
+    The caching script writes here; the adapters read from here.
     """
     if variant not in PHYSICS_VARIANTS:
         msg = f"physics variant must be one of {PHYSICS_VARIANTS}, got {variant!r}"
         raise ValueError(msg)
-    if image_path.parent.parent.name != "frames":
+    frames_dir = image_path.parent.parent
+    frames_dir_name = frames_dir.name
+    if frames_dir_name == "frames":
+        physics_dir_name = f"physics_{variant}"
+    elif frames_dir_name.startswith("frames_"):
+        # e.g. "frames_faces" -> "physics_faces_<variant>"
+        suffix = frames_dir_name[len("frames_") :]
+        physics_dir_name = f"physics_{suffix}_{variant}"
+    else:
         msg = (
-            f"image path {image_path} does not match the expected "
-            "<...>/frames/<video_id>/<frame>.<ext> layout — cannot derive "
-            "the physics-map cache location"
+            f"image path {image_path} has parent directory name "
+            f"{frames_dir_name!r}, expected 'frames' or 'frames_<...>' — "
+            "cannot derive the physics-map cache location"
         )
         raise ValueError(msg)
     return (
-        image_path.parent.parent.parent
-        / f"physics_{variant}"
+        frames_dir.parent
+        / physics_dir_name
         / image_path.parent.name
         / (image_path.stem + ".npz")
     )
@@ -264,6 +277,7 @@ class FaceForensicsAdapter(Dataset):
         ff_split: str | None = None,
         load_physics_maps: bool = False,
         physics_variant: str = "heuristic",
+        frames_subdir: str = "frames",
     ) -> None:
         """Args (extension):
 
@@ -275,6 +289,12 @@ class FaceForensicsAdapter(Dataset):
             trust-map variant; ``"gtmask"`` loads the GT-mask-derived variant
             for fakes (and falls back to heuristic for reals, which have no
             mask). Used only when ``load_physics_maps=True``.
+        frames_subdir: Subdirectory under ``<compression>/`` that contains
+            the frame images. Default ``"frames"`` reads the full extracted
+            frames from ``scripts/extract_frames.py``. Set to
+            ``"frames_faces"`` to read the face-cropped variant produced by
+            ``scripts/extract_faces.py`` — required for any FF++ baseline
+            that hopes to match the published EfficientNet-B0 numbers.
         """
         self.root = Path(root)
         if compression not in FF_COMPRESSIONS:
@@ -287,6 +307,7 @@ class FaceForensicsAdapter(Dataset):
         self.target_size = target_size
         self.load_physics_maps = load_physics_maps
         self.physics_variant = physics_variant
+        self.frames_subdir = frames_subdir
 
         # Resolve the subset filter: if `ff_split` is set, intersect its
         # videos with `subset_video_ids` (when both are given).
@@ -299,7 +320,7 @@ class FaceForensicsAdapter(Dataset):
 
         records: list[_FFRecord] = []
         # Real frames.
-        real_root = self.root / "original_sequences" / "youtube" / compression / "frames"
+        real_root = self.root / "original_sequences" / "youtube" / compression / frames_subdir
         if real_root.exists():
             records.extend(
                 self._collect(
@@ -312,15 +333,24 @@ class FaceForensicsAdapter(Dataset):
             )
         # Fake frames per method.
         for method in methods:
-            method_root = self.root / "manipulated_sequences" / method / compression / "frames"
-            mask_root = self.root / "manipulated_sequences" / method / compression / "masks"
+            method_root = (
+                self.root / "manipulated_sequences" / method / compression / frames_subdir
+            )
+            # Masks are not face-cropped; gtmask physics from face-cropped
+            # frames would need a separate mask-cropping pass. For now, only
+            # attach masks when reading the standard "frames" tree.
+            mask_root = (
+                self.root / "manipulated_sequences" / method / compression / "masks"
+                if frames_subdir == "frames"
+                else None
+            )
             if not method_root.exists():
                 continue
             records.extend(
                 self._collect(
                     method_root,
                     label=1,
-                    mask_root=mask_root if mask_root.exists() else None,
+                    mask_root=mask_root if mask_root and mask_root.exists() else None,
                     cap=max_frames_per_video,
                     keep_videos=keep_videos,
                 ),
@@ -329,7 +359,7 @@ class FaceForensicsAdapter(Dataset):
             msg = (
                 f"no frames found under {self.root}. Did you run frame "
                 f"extraction? Expected layout: "
-                f"<root>/original_sequences/youtube/{compression}/frames/<video>/*.png"
+                f"<root>/original_sequences/youtube/{compression}/{frames_subdir}/<video>/*.png"
             )
             raise FileNotFoundError(msg)
         self._records = records
@@ -487,6 +517,7 @@ class CelebDFAdapter(Dataset):
         testing_list: bool | str | Path = False,
         subset_video_ids: Iterable[str] | None = None,
         load_physics_maps: bool = False,
+        frames_subdir: str = "frames",
     ) -> None:
         """Args (extension):
 
@@ -494,10 +525,15 @@ class CelebDFAdapter(Dataset):
             physics maps concatenated to RGB. Celeb-DF has no GT manipulation
             masks, so only the ``heuristic`` variant is supported here —
             see :class:`FaceForensicsAdapter` for the gtmask variant.
+        frames_subdir: Subdirectory name under each subset (``Celeb-real``,
+            ``Celeb-synthesis``, ``YouTube-real``) that holds the frame
+            images. Default ``"frames"``; pass ``"frames_faces"`` to read
+            face crops produced by ``scripts/extract_faces.py``.
         """
         self.root = Path(root)
         self.target_size = target_size
         self.load_physics_maps = load_physics_maps
+        self.frames_subdir = frames_subdir
 
         keep_videos: set[str] | None = None
         if testing_list:
@@ -533,8 +569,9 @@ class CelebDFAdapter(Dataset):
         if not records:
             msg = (
                 f"no frames found under {self.root}. Expected layout: "
-                f"<root>/{{Celeb-real,Celeb-synthesis,YouTube-real}}/frames/<video>/*.png. "
-                "Did you run scripts/extract_frames.py --dataset celeb-df?"
+                f"<root>/{{Celeb-real,Celeb-synthesis,YouTube-real}}/{frames_subdir}/<v>/*.png. "
+                "Did you run scripts/extract_frames.py --dataset celeb-df "
+                "(and scripts/extract_faces.py for frames_faces)?"
             )
             raise FileNotFoundError(msg)
         self._records = records
@@ -546,7 +583,7 @@ class CelebDFAdapter(Dataset):
         cap: int | None,
         keep_videos: set[str] | None,
     ) -> list[_CelebRecord]:
-        frames_root = self.root / subset / "frames"
+        frames_root = self.root / subset / self.frames_subdir
         if not frames_root.exists():
             return []
         out: list[_CelebRecord] = []

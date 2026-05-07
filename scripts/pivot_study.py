@@ -61,6 +61,7 @@ def _build_dataset(
     )
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
+    frames_subdir = "frames_faces" if args.use_face_crops else "frames"
     if args.dataset == "image-folder":
         return ImageFolderDataset(
             real_dir=args.data_root,
@@ -74,6 +75,7 @@ def _build_dataset(
             target_size=target_size,
             testing_list=args.celeb_testing_list,
             subset_video_ids=subset_video_ids,
+            frames_subdir=frames_subdir,
         )
     return FaceForensicsAdapter(
         root=args.data_root,
@@ -82,6 +84,7 @@ def _build_dataset(
         target_size=target_size,
         subset_video_ids=subset_video_ids,
         ff_split=ff_split,
+        frames_subdir=frames_subdir,
     )
 
 
@@ -395,6 +398,15 @@ def main() -> int:
         "leak source identities between train and val and produce "
         "anti-correlated val AUROC. The script will print exact download "
         "commands if the files aren't present.",
+    )
+    parser.add_argument(
+        "--use-face-crops",
+        action="store_true",
+        help="Read face-cropped frames from frames_faces/ instead of full "
+        "frames from frames/. Required for any FF++ baseline that hopes "
+        "to match the published EfficientNet-B0 numbers (full frames "
+        "plateau at AUROC ~0.50 because too much non-face content drowns "
+        "the discriminative signal). Run scripts/extract_faces.py first.",
     )
     parser.add_argument(
         "--baselines",

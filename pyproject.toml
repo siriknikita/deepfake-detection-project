@@ -24,6 +24,7 @@ dependencies = [
     "matplotlib>=3.8",
     "tqdm>=4.66",
     "pandas>=2.0",
+    "facenet-pytorch>=2.5",
 ]
 
 [project.optional-dependencies]

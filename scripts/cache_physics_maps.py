@@ -109,6 +109,7 @@ def _build_dataset(args: argparse.Namespace) -> Any:
             max_frames_per_video=args.frames_per_video,
             target_size=target_size,
             testing_list=args.celeb_testing_list,
+            frames_subdir=args.frames_subdir,
         )
     return FaceForensicsAdapter(
         root=args.data_root,
@@ -116,6 +117,7 @@ def _build_dataset(args: argparse.Namespace) -> Any:
         max_frames_per_video=args.frames_per_video,
         target_size=target_size,
         ff_split=args.ff_split,
+        frames_subdir=args.frames_subdir,
     )
 
 
@@ -355,6 +357,16 @@ def main() -> int:
         "going higher gives diminishing returns and risks oversubscription.",
     )
     parser.add_argument("--log-every", type=int, default=25)
+    parser.add_argument(
+        "--frames-subdir",
+        type=str,
+        default="frames",
+        help="Subdirectory holding the frames to read. Default 'frames'; "
+        "pass 'frames_faces' to cache physics maps for the face-cropped "
+        "tree produced by scripts/extract_faces.py. The output cache "
+        "directory name encodes this so the two caches don't collide: "
+        "frames -> physics_<variant>; frames_faces -> physics_faces_<variant>.",
+    )
     args = parser.parse_args()
 
     if args.dataset == "celeb-df" and args.variant == "gtmask":

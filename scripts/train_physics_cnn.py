@@ -64,6 +64,7 @@ def _build_ff_dataset(
     from forge_detect.datasets import FaceForensicsAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
+    frames_subdir = "frames_faces" if args.use_face_crops else "frames"
     return FaceForensicsAdapter(
         root=args.data_root,
         compression=args.compression,
@@ -73,6 +74,7 @@ def _build_ff_dataset(
         ff_split=ff_split,
         load_physics_maps=True,
         physics_variant=physics_variant,
+        frames_subdir=frames_subdir,
     )
 
 
@@ -114,12 +116,14 @@ def _build_celeb_dataset(args: argparse.Namespace) -> Any:
     from forge_detect.datasets import CelebDFAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
+    frames_subdir = "frames_faces" if args.use_face_crops else "frames"
     return CelebDFAdapter(
         root=args.celeb_data_root,
         max_frames_per_video=args.frames_per_video_eval,
         target_size=target_size,
         testing_list=True,  # canonical 518-video benchmark
         load_physics_maps=True,  # CelebDF only has heuristic variant
+        frames_subdir=frames_subdir,
     )
 
 
@@ -278,6 +282,15 @@ def main() -> int:
         "leak source identities between train and val. Pass the same flag to "
         "pivot_study.py for the baseline_3ch run so both experiments use the "
         "same partition.",
+    )
+    parser.add_argument(
+        "--use-face-crops",
+        action="store_true",
+        help="Read face-cropped frames from frames_faces/ instead of full "
+        "frames. Required for the published-recipe FF++ EfficientNet-B0 "
+        "training regime; full frames at this scale plateau at AUROC ~0.5. "
+        "Run scripts/extract_faces.py and scripts/cache_physics_maps.py "
+        "--frames-subdir frames_faces first.",
     )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
