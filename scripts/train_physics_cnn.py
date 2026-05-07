@@ -46,10 +46,20 @@ from typing import Any
 def _build_ff_dataset(
     args: argparse.Namespace,
     *,
-    ff_split: str,
+    subset_video_ids: set[str] | None,
     physics_variant: str,
     frames_per_video: int | None,
 ) -> Any:
+    """Build the FF++ adapter for a video subset.
+
+    Mirrors ``scripts/pivot_study.py``'s pattern: callers run
+    :func:`forge_detect.datasets.split_videos` over the full enumerated
+    video set and pass the per-split ``video_ids`` here. We deliberately do
+    NOT use ``ff_split=`` (which loads ``splits/<name>.json``) because the
+    user's FF++ tree may not ship those files; both scripts must use the
+    same random-split convention so a baseline_3ch run and a physics_6ch
+    run with the same ``--seed`` see the same train/val/test partitions.
+    """
     from forge_detect.datasets import FaceForensicsAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
@@ -58,10 +68,23 @@ def _build_ff_dataset(
         compression=args.compression,
         max_frames_per_video=frames_per_video,
         target_size=target_size,
-        ff_split=ff_split,
+        subset_video_ids=subset_video_ids,
         load_physics_maps=True,
         physics_variant=physics_variant,
     )
+
+
+def _enumerate_ff_video_ids(args: argparse.Namespace) -> list[str]:
+    from forge_detect.datasets import FaceForensicsAdapter
+
+    target_size = (args.image_size, args.image_size) if args.image_size else None
+    full = FaceForensicsAdapter(
+        root=args.data_root,
+        compression=args.compression,
+        max_frames_per_video=1,
+        target_size=target_size,
+    )
+    return full.video_ids()
 
 
 def _build_celeb_dataset(args: argparse.Namespace) -> Any:
@@ -161,6 +184,28 @@ def main() -> int:
     )
     parser.add_argument("--frames-per-video-train", type=int, default=30)
     parser.add_argument("--frames-per-video-eval", type=int, default=10)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Seed for the video-disjoint train/val/test split. Use the same "
+        "value as the baseline_3ch pivot_study run so the comparison is "
+        "fair (same train/val/test videos for both experiments).",
+    )
+    parser.add_argument(
+        "--val-fraction",
+        type=float,
+        default=0.15,
+        help="Fraction of videos held out for validation. Default 0.15 matches "
+        "pivot_study.py.",
+    )
+    parser.add_argument(
+        "--test-fraction",
+        type=float,
+        default=0.15,
+        help="Fraction of videos held out for test. Default 0.15 matches "
+        "pivot_study.py.",
+    )
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -195,20 +240,35 @@ def main() -> int:
     print(f"[physics-6ch] runs_dir = {args.runs_dir}")
     print(f"[physics-6ch] variant = {args.variant}")
 
+    from forge_detect.datasets import split_videos
+
+    print("[physics-6ch] enumerating videos for the disjoint split ...")
+    all_video_ids = _enumerate_ff_video_ids(args)
+    train_vids, val_vids, test_vids = split_videos(
+        all_video_ids,
+        seed=args.seed,
+        val_fraction=args.val_fraction,
+        test_fraction=args.test_fraction,
+    )
+    print(
+        f"[physics-6ch] split: train={len(train_vids)} val={len(val_vids)} "
+        f"test={len(test_vids)} (of {len(all_video_ids)} total videos)",
+    )
+
     print("[physics-6ch] building FF++ datasets (load_physics_maps=True) ...")
     # All three splits use the configured variant. For the FF++-only protocol
     # this avoids the train/test distribution shift that would arise if train
     # used GT masks but val/test fell back to heuristic.
     train_ds = _build_ff_dataset(
-        args, ff_split="train", physics_variant=args.variant,
+        args, subset_video_ids=train_vids, physics_variant=args.variant,
         frames_per_video=args.frames_per_video_train,
     )
     val_ds = _build_ff_dataset(
-        args, ff_split="val", physics_variant=args.variant,
+        args, subset_video_ids=val_vids, physics_variant=args.variant,
         frames_per_video=args.frames_per_video_eval,
     )
     test_ds = _build_ff_dataset(
-        args, ff_split="test", physics_variant=args.variant,
+        args, subset_video_ids=test_vids, physics_variant=args.variant,
         frames_per_video=args.frames_per_video_eval,
     )
     print(
