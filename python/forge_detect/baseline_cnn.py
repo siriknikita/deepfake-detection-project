@@ -193,14 +193,21 @@ class BaselineConfig:
     val_every: int = 1
     checkpoint_dir: Path = field(default_factory=lambda: Path("runs_baseline"))
     grad_clip: float = 1.0
-    balance_classes: bool = False
-    """Default disabled. WeightedRandomSampler forces 50/50 train batches,
-    which makes BatchNorm running statistics drift toward a balanced
-    feature distribution; at eval the natural FF++ ~20/80 real:fake
-    distribution then sees mismatched BN normalisation and val AUROC
-    collapses (observed: train_auroc 0.71 with val_auroc 0.21 after only
-    4 epochs). With BCE-on-logits the 1:4 imbalance is benign — disabling
-    the sampler keeps train and val BN stats aligned and val tracks train."""
+    balance_classes: bool = True
+    """Re-enable WeightedRandomSampler so train batches are ~50/50 real:fake.
+
+    Earlier I disabled this on a "BN running stats drift" theory, after
+    seeing anti-correlated val AUROC. That theory was wrong: the real
+    cause was identity leakage from random splits (real "X" in train,
+    fake "X_Y" in val → model memorises identity X then sees its fake in
+    val). The fix is --use-ff-splits, which gives identity-disjoint
+    partitions by construction.
+
+    With official splits, balance_classes=False makes the natural ~20/80
+    FF++ imbalance dominate the loss: BCE-on-logits collapses to the
+    majority-class prediction (train_acc=val_acc=0.8, AUROC=0.5) before
+    extracting any class signal. WRS oversamples reals so the gradient
+    sees both classes equally and actual learning happens."""
     augment_hflip: bool = True
     """Random horizontal flip with p=0.5 during training. Pure geometric
     op, safe for any channel count (RGB or RGB + physics maps); doubles

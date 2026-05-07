@@ -149,7 +149,7 @@ def _run_baseline_cnn(
         "device": args.device,
         "num_workers": args.num_workers,
         "checkpoint_dir": run_dir.parent,  # ignored — resume_dir wins
-        "balance_classes": args.balance,
+        "balance_classes": not args.no_balance,
         "augment_hflip": not args.no_augment,
     }
     if args.lr is not None:
@@ -362,12 +362,12 @@ def main() -> int:
         "baseline is in hand.",
     )
     parser.add_argument(
-        "--balance",
+        "--no-balance",
         action="store_true",
-        help="Re-enable WeightedRandomSampler for 50/50 train batches. Off by "
-        "default — the FF++ ~20/80 real:fake imbalance under WRS makes BN "
-        "running stats drift away from the val distribution and val AUROC "
-        "collapses. BCE-on-logits handles the imbalance fine without WRS.",
+        help="Disable WeightedRandomSampler. WRS is on by default — without "
+        "it, the natural FF++ ~20/80 real:fake imbalance makes BCE-on-logits "
+        "collapse to the majority-class prediction (acc 0.80, AUROC 0.5). "
+        "Use this flag only for ablations.",
     )
     parser.add_argument(
         "--no-augment",
