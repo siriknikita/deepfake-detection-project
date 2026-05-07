@@ -218,6 +218,12 @@ class BaselineConfig:
     """Random horizontal flip with p=0.5 during training. Pure geometric
     op, safe for any channel count (RGB or RGB + physics maps); doubles
     effective dataset diversity at zero compute cost."""
+    log_every: int = 100
+    """Print step-level metrics (loss, logit std, grad norm) every N
+    training batches. 0 disables. Helps diagnose "epoch summary says
+    AUROC=0.5 but is the model learning within the epoch?" — without
+    this you only see the epoch average and can't tell whether loss is
+    actually trending down batch-to-batch."""
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
@@ -252,7 +258,7 @@ def _maybe_hflip(images: Any, *, p: float = 0.5) -> Any:
     )
 
 
-def _epoch_pass(
+def _epoch_pass(  # noqa: PLR0912
     model: Any,
     loader: Any,
     optimizer: Any | None,
@@ -275,6 +281,7 @@ def _epoch_pass(
 
     autocast_device = "cuda" if device == "cuda" else "cpu"
     profiled_first_batch = False
+    step_idx = 0
     for images, labels in loader:
         images = images.to(device, non_blocking=True)
         labels = labels.to(device, non_blocking=True)
@@ -356,6 +363,27 @@ def _epoch_pass(
             n_total += labels.numel()
             proba_all.extend(proba.detach().cpu().tolist())
             labels_all.extend(labels.detach().cpu().tolist())
+        if (
+            train
+            and config.log_every > 0
+            and step_idx > 0
+            and step_idx % config.log_every == 0
+        ):
+            with torch.no_grad():
+                logit_std = float(logits.std().item())
+                logit_mean = float(logits.mean().item())
+            grad_norm = 0.0
+            for p in model.parameters():
+                if p.grad is not None:
+                    grad_norm += float((p.grad * p.grad).sum().item())
+            grad_norm = grad_norm**0.5
+            print(
+                f"    step {step_idx:4d}: loss={loss.item():.4f} "
+                f"logit(mean={logit_mean:+.3f} std={logit_std:.3f}) "
+                f"|grad|={grad_norm:.3f} "
+                f"running_acc={n_correct/max(1,n_total):.3f}",
+            )
+        step_idx += 1
     out = {
         "loss": total_loss / max(1, n_batches),
         "accuracy": n_correct / max(1, n_total),
