@@ -177,10 +177,18 @@ class BaselineConfig:
 
     epochs: int = 30
     batch_size: int = 32
-    learning_rate: float = 1.0e-3
+    learning_rate: float = 1.0e-4
+    """Default lowered from 1e-3 to 1e-4. The standard fine-tuning rate for
+    pretrained ImageNet backbones — at 1e-3 with AdamW, training stalled
+    with loss stuck at log(2)≈0.693 and val AUROC at chance. 1e-4 is the
+    leaderboard recipe for FF++."""
     weight_decay: float = 1.0e-4
     device: str = "auto"
-    mixed_precision: bool = True
+    mixed_precision: bool = False
+    """Default disabled. AMP with the default fp16 precision and tight
+    gradients of fine-tuning was associated with cuDNN execution errors
+    after a few epochs and never-decreasing loss before that. Re-enable
+    explicitly once a working baseline is in hand."""
     num_workers: int = 4
     val_every: int = 1
     checkpoint_dir: Path = field(default_factory=lambda: Path("runs_baseline"))
@@ -231,6 +239,14 @@ def _epoch_pass(
         with ctx:
             logits = model(images).squeeze(-1)  # (B,)
             loss = bce(logits, labels)
+        # Hard fail on non-finite loss — silent NaNs corrupt optimizer state and
+        # produce later cuDNN execution errors that are much harder to diagnose.
+        if train and not torch.isfinite(loss):
+            msg = (
+                f"loss became non-finite ({loss.item()}) — likely AMP gradient "
+                "underflow or LR too high. Try mixed_precision=False or lower lr."
+            )
+            raise RuntimeError(msg)
         if train:
             assert optimizer is not None
             optimizer.zero_grad(set_to_none=True)

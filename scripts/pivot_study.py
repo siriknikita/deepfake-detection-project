@@ -107,13 +107,18 @@ def _run_baseline_cnn(
 
     run_dir = args.runs_dir / "baseline_run"
     run_dir.mkdir(parents=True, exist_ok=True)
-    cfg = BaselineConfig(
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        device=args.device,
-        num_workers=args.num_workers,
-        checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
-    )
+    cfg_kwargs: dict[str, Any] = {
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "device": args.device,
+        "num_workers": args.num_workers,
+        "checkpoint_dir": run_dir.parent,  # ignored — resume_dir wins
+    }
+    if args.lr is not None:
+        cfg_kwargs["learning_rate"] = args.lr
+    if args.amp:
+        cfg_kwargs["mixed_precision"] = True
+    cfg = BaselineConfig(**cfg_kwargs)
     t0 = time.time()
     out = train_baseline_cnn(
         train_ds,
@@ -301,6 +306,22 @@ def main() -> int:
         type=float,
         default=0.15,
         help="Fraction of *videos* held out for testing (default 0.15).",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=None,
+        help="Learning rate override for the pure-CNN baseline. If omitted, "
+        "uses BaselineConfig.learning_rate (1e-4 — the standard fine-tuning "
+        "rate for pretrained EfficientNet-B0 on FF++).",
+    )
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        help="Enable mixed-precision (fp16 autocast) training. Off by default; "
+        "AMP with tight fine-tuning gradients was associated with cuDNN "
+        "execution failures and stalled loss. Re-enable once a working "
+        "baseline is in hand.",
     )
     parser.add_argument(
         "--baselines",

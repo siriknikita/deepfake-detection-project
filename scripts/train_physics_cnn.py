@@ -99,6 +99,7 @@ def _train(
         num_workers=args.num_workers,
         checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
         balance_classes=True,
+        mixed_precision=args.amp,
     )
 
     def factory(*, pretrained: bool) -> Any:
@@ -163,8 +164,21 @@ def main() -> int:
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--learning-rate", type=float, default=1.0e-3)
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=1.0e-4,
+        help="Default 1e-4 (standard fine-tuning rate for pretrained "
+        "EfficientNet-B0). Higher rates stall the loss at log(2) and never "
+        "recover on this task.",
+    )
     parser.add_argument("--weight-decay", type=float, default=1.0e-4)
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        help="Enable fp16 autocast. Off by default — tight fine-tuning "
+        "gradients caused cuDNN execution errors with AMP enabled.",
+    )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--no-pretrained", action="store_true")
