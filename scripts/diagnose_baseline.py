@@ -42,22 +42,24 @@ def _build_batch(
     from forge_detect.datasets import FaceForensicsAdapter
 
     torch = _torch()
+    # No ff_split filter — the diagnostic just needs *any* 8 frames (4 real,
+    # 4 fake), and the user's tree may not ship splits/train.json. The full
+    # training scripts use split_videos() over enumerated video_ids instead.
     ds = FaceForensicsAdapter(
         root=args.data_root,
         compression="c23",
         target_size=(args.image_size, args.image_size),
         max_frames_per_video=2,
-        ff_split="train",
     )
 
     half = args.batch_size // 2
     real_idx = [i for i, r in enumerate(ds._records) if r.label == 0][:half]
     fake_idx = [i for i, r in enumerate(ds._records) if r.label == 1][:half]
-    if not real_idx or not fake_idx:
+    if len(real_idx) < half or len(fake_idx) < half:
         msg = (
-            f"need at least {half} real and {half} fake frames in the train "
-            f"split; found {len(real_idx)} real, {len(fake_idx)} fake. "
-            "Did frame extraction succeed for both classes?"
+            f"need at least {half} real and {half} fake frames; found "
+            f"{len(real_idx)} real, {len(fake_idx)} fake. Did frame "
+            "extraction succeed for both classes?"
         )
         raise RuntimeError(msg)
 
