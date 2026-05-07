@@ -177,17 +177,21 @@ class BaselineConfig:
 
     epochs: int = 30
     batch_size: int = 32
-    learning_rate: float = 5.0e-4
-    """5e-4 splits the published FF++ EfficientNet-B0 fine-tuning range
-    (2e-4 to 1e-3). I previously dropped this to 1e-4 thinking the cuDNN
-    error was LR-related, but it was AMP-related — with mixed_precision
-    off (current default) higher LRs are safe. At 1e-4 + cosine annealing
-    over 20 epochs, the effective LR drops fast enough that 4500 steps
-    of diverse FF++ batches don't accumulate enough signal: train_auroc
-    stays at 0.50 across 4+ epochs while the diagnostic happily overfits
-    8 frames in 30 steps with the same LR (because there gradients all
-    point the same way). 5e-4 is 5x faster per step and stays in the
-    leaderboard-validated range."""
+    learning_rate: float = 2.0e-4
+    """The published Rössler FF++ EfficientNet/Xception fine-tuning recipe.
+
+    History: this default has been wrong twice. 1e-3 was too high and
+    paired with AMP caused cuDNN execution errors. 5e-4 (without AMP)
+    overshot from a fresh Linear head — the per-step inline profile
+    showed |grad|=1.000 for the first 400 steps (clipped) and logit std
+    blowing from 0.046 to 0.821 at step 100, then collapsing to ~0.03
+    by step 1500 as BCE pulled the model into the trivial z=0 minimum.
+    Train AUROC plateaued at 0.503 = chance under WRS-balanced batches.
+
+    2e-4 is the FF++-validated rate. Half the per-step magnitude of 5e-4
+    keeps the optimiser inside the linear head's stable regime during
+    the first hundred steps before it starts producing meaningful
+    gradients."""
     weight_decay: float = 1.0e-4
     device: str = "auto"
     mixed_precision: bool = False
