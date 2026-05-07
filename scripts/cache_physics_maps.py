@@ -70,11 +70,32 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+# Threading model:
+#   - rayon (Rust) uses its default thread pool — all CPU cores. Each detect()
+#     call internally parallelises the PDE / convolution kernels across cores.
+#   - On top of that, a Python ThreadPoolExecutor runs N worker threads. The
+#     Rust core releases the GIL via py.allow_threads(), and rayon's work-
+#     stealing scheduler interleaves work from concurrent Python callers, so
+#     a small thread pool (4-8) yields ~2-3x throughput by overlapping the
+#     GIL-bound parts (PIL decode, numpy normalisation, npz compression+write)
+#     with the rayon-bound parts.
+#
+# Empirical bench (M4 Pro 14C, 256x256, max_iter=200):
+#   rayon=default + 1 worker  → 2.94 img/s (baseline)
+#   rayon=default + 4 workers → 7.79 img/s (2.65x — sweet spot)
+#   RAYON_NUM_THREADS=1 + 8 workers → 3.72 img/s (worse — all serialise on
+#                                                  the single rayon worker)
+#
+# Setting RAYON_NUM_THREADS in the environment overrides the rayon default,
+# but on a normal multi-core box you almost never want to.
 
 
 def _build_dataset(args: argparse.Namespace) -> Any:
@@ -108,37 +129,6 @@ def _to_hw_mask(mask_t: Any | None) -> np.ndarray | None:
         return None
     arr = mask_t.detach().cpu().numpy() if hasattr(mask_t, "detach") else mask_t
     return arr.astype(np.float32, copy=False)
-
-
-class _MetadataDataset:
-    """Wrap a dataset to return (image, label, mask?, image_path) per __getitem__.
-
-    Mirrors the helper in scripts/oracle_phase1.py — the underlying adapter's
-    ``__getitem__`` doesn't return the source path, but the per-frame npz
-    location depends on it.
-    """
-
-    def __init__(self, base: Any, indices: list[int]) -> None:
-        self.base = base
-        self.indices = indices
-
-    def __len__(self) -> int:
-        return len(self.indices)
-
-    def __getitem__(self, idx: int) -> tuple[Any, int, Any | None, str]:
-        real_idx = self.indices[idx]
-        item = self.base[real_idx]
-        rec = self.base._records[real_idx]
-        if len(item) == 3:
-            image, label, mask = item
-        else:
-            image, label = item[0], item[1]
-            mask = None
-        return image, int(label), mask, str(rec.image_path)
-
-
-def _collate_passthrough(batch: list[Any]) -> Any:
-    return batch[0]
 
 
 def _binarise_mask(mask: np.ndarray) -> np.ndarray:
@@ -183,12 +173,51 @@ def _save_npz(path: Path, wcnn: np.ndarray, z_star: np.ndarray, residual: np.nda
     tmp.replace(path)
 
 
+def _process_index(
+    idx: int,
+    dataset: Any,
+    args: argparse.Namespace,
+    params: Any,
+) -> int:
+    """Load + math + save for a single dataset index; called from worker threads.
+
+    The Rust core releases the GIL inside ``solve_and_extract``, so eight of
+    these running concurrently *do* run in parallel — that's the whole point
+    of the thread pool over here vs the previous single-thread DataLoader
+    pipeline.
+    """
+    from forge_detect.datasets import physics_npz_path
+    from forge_detect.pipeline import detect
+
+    rec = dataset._records[idx]
+    item = dataset[idx]
+    if len(item) == 3:
+        image_t, label, mask_t = item
+    else:
+        image_t, label = item[0], item[1]
+        mask_t = None
+
+    rgb = _to_hwc(image_t)
+    mask = _to_hw_mask(mask_t)
+    w = _trust_map(rgb, mask, int(label), args.variant)
+    result = detect(rgb, params=params, trust_map=w, device=args.device)
+    npz = physics_npz_path(rec.image_path, args.variant)
+    _save_npz(
+        npz,
+        wcnn=w,
+        z_star=result.solve.z_star,
+        residual=result.solve.residual,
+    )
+    return idx
+
+
 def _cache_one_dataset(args: argparse.Namespace) -> dict[str, int]:
-    from torch.utils.data import DataLoader
+    # Eagerly import torch in the main thread so the module-init machinery
+    # doesn't race when worker threads first touch torch.from_numpy().
+    import torch  # noqa: F401
 
     from forge_detect.config import PdeParams, PipelineParams
     from forge_detect.datasets import physics_npz_path
-    from forge_detect.pipeline import detect
 
     dataset = _build_dataset(args)
     n_total = len(dataset)
@@ -223,49 +252,52 @@ def _cache_one_dataset(args: argparse.Namespace) -> dict[str, int]:
         indices_to_do.append(i)
 
     print(f"[cache] {indices_skip} frames already cached, {len(indices_to_do)} new to process")
+    print(
+        f"[cache] threading: {args.num_workers} python worker threads x "
+        f"rayon (RAYON_NUM_THREADS={os.environ.get('RAYON_NUM_THREADS', 'default=all-cores')})",
+    )
     if not indices_to_do:
-        return {"processed": 0, "skipped": indices_skip, "total": n_total}
+        return {"processed": 0, "failed": 0, "skipped": indices_skip, "total": n_total}
 
     params = PipelineParams(
         n_scales=args.n_scales,
-        pde=PdeParams(max_iter=args.max_iter, log_every=20),
+        pde=PdeParams(max_iter=args.max_iter, log_every=0),
     )
-
-    loader_kwargs: dict[str, Any] = {
-        "batch_size": 1,
-        "shuffle": False,
-        "num_workers": args.num_workers,
-        "collate_fn": _collate_passthrough,
-        "pin_memory": False,
-    }
-    if args.num_workers > 0:
-        loader_kwargs["persistent_workers"] = True
-    loader = DataLoader(_MetadataDataset(dataset, indices_to_do), **loader_kwargs)
 
     t0 = time.time()
     n_done = 0
-    for image_t, label, mask_t, image_path in loader:
-        rgb = _to_hwc(image_t)
-        mask = _to_hw_mask(mask_t)
-        w = _trust_map(rgb, mask, int(label), args.variant)
-        result = detect(rgb, params=params, trust_map=w, device=args.device)
-        npz = physics_npz_path(Path(image_path), args.variant)
-        _save_npz(
-            npz,
-            wcnn=w,
-            z_star=result.solve.z_star,
-            residual=result.solve.residual,
-        )
-        n_done += 1
-        if args.log_every and n_done % args.log_every == 0:
-            elapsed = time.time() - t0
-            rate = n_done / max(elapsed, 1.0e-6)
-            eta = (len(indices_to_do) - n_done) / max(rate, 1.0e-6)
-            print(f"  [{n_done}/{len(indices_to_do)}] {rate:.2f} img/s ETA {eta:.0f}s")
+    n_failed = 0
+    with ThreadPoolExecutor(max_workers=args.num_workers) as ex:
+        futures = {
+            ex.submit(_process_index, i, dataset, args, params): i for i in indices_to_do
+        }
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            try:
+                fut.result()
+                n_done += 1
+            except Exception as e:
+                n_failed += 1
+                rec = dataset._records[idx]
+                print(
+                    f"  ERROR on index {idx} ({rec.image_path}): "
+                    f"{type(e).__name__}: {e}",
+                )
 
-    del loader
+            seen = n_done + n_failed
+            if args.log_every and seen % args.log_every == 0:
+                elapsed = time.time() - t0
+                rate = seen / max(elapsed, 1.0e-6)
+                eta = (len(indices_to_do) - seen) / max(rate, 1.0e-6)
+                fail_str = f" ({n_failed} failed)" if n_failed else ""
+                print(
+                    f"  [{seen}/{len(indices_to_do)}] {rate:.2f} img/s "
+                    f"ETA {eta:.0f}s{fail_str}",
+                )
+
     return {
         "processed": n_done,
+        "failed": n_failed,
         "skipped": indices_skip,
         "total": n_total,
     }
@@ -312,7 +344,16 @@ def main() -> int:
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--n-scales", type=int, default=3)
     parser.add_argument("--max-iter", type=int, default=200)
-    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=4,
+        help="Number of Python worker threads running detect() concurrently. "
+        "Combined with rayon's default multi-threaded kernels, this is the "
+        "sweet spot for overlapping GIL-bound work (PIL decode, npz save) "
+        "with the Rust math. Empirically ~2.65x over a single thread; "
+        "going higher gives diminishing returns and risks oversubscription.",
+    )
     parser.add_argument("--log-every", type=int, default=25)
     args = parser.parse_args()
 
@@ -334,12 +375,13 @@ def main() -> int:
     print()
     print("=== cache summary ===")
     print(f"  processed: {summary['processed']}")
+    print(f"  failed: {summary.get('failed', 0)}")
     print(f"  skipped (already cached): {summary['skipped']}")
     print(f"  total in dataset: {summary['total']}")
     print(f"  elapsed: {elapsed:.0f}s")
     if summary["processed"] > 0:
         print(f"  rate: {summary['processed'] / max(elapsed, 1):.2f} img/s")
-    return 0
+    return 0 if summary.get("failed", 0) == 0 else 1
 
 
 if __name__ == "__main__":
