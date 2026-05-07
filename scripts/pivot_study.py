@@ -45,9 +45,15 @@ from typing import Any
 def _build_dataset(
     args: argparse.Namespace,
     *,
-    subset_video_ids: set[str] | None,
+    subset_video_ids: set[str] | None = None,
+    ff_split: str | None = None,
     frames_per_video: int | None,
 ) -> Any:
+    """Construct the dataset adapter for the configured dataset and split.
+
+    Pass either ``subset_video_ids`` (random video-disjoint split, default)
+    or ``ff_split`` (official FF++ splits/<name>.json file). Never both.
+    """
     from forge_detect.datasets import (
         CelebDFAdapter,
         FaceForensicsAdapter,
@@ -75,6 +81,7 @@ def _build_dataset(
         max_frames_per_video=frames_per_video,
         target_size=target_size,
         subset_video_ids=subset_video_ids,
+        ff_split=ff_split,
     )
 
 
@@ -84,6 +91,35 @@ def _all_video_ids(args: argparse.Namespace) -> list[str]:
         return full.video_ids()
     records = getattr(full, "_records", [])
     return sorted({rec.video_id for rec in records})
+
+
+def _check_ff_splits_present(data_root: Path) -> None:
+    """Verify the FF++ splits/<name>.json files exist; print curl commands if not.
+
+    The official splits ship with the FF++ download, but some users only have
+    the frame extraction without the splits/ directory. Without the splits,
+    random partitioning over compound video_ids ("X_Y") leaks source-identity
+    features between train and val and produces anti-correlated val AUROC —
+    even with augmentation and balance_classes=False. This check fails fast
+    and tells the user how to recover.
+    """
+    splits_dir = Path(data_root) / "splits"
+    needed = ["train.json", "val.json", "test.json"]
+    missing = [n for n in needed if not (splits_dir / n).exists()]
+    if not missing:
+        return
+    base = "https://raw.githubusercontent.com/ondyari/FaceForensics/master/dataset/splits"
+    cmds = "\n".join(
+        f"  curl -L -o {splits_dir / n} {base}/{n}" for n in needed
+    )
+    msg = (
+        f"Official FF++ split files missing under {splits_dir}: {missing}\n"
+        f"Create the directory and download them:\n"
+        f"  mkdir -p {splits_dir}\n"
+        f"{cmds}\n"
+        "Then re-run with --use-ff-splits."
+    )
+    raise FileNotFoundError(msg)
 
 
 def _run_baseline_cnn(
@@ -341,6 +377,16 @@ def main() -> int:
         "the limited number of unique training videos within a few epochs.",
     )
     parser.add_argument(
+        "--use-ff-splits",
+        action="store_true",
+        help="Use the official FF++ splits/{train,val,test}.json files for "
+        "the train/val/test partition. Required for identity-disjoint splits "
+        "— without these files, random splits over compound fake video_ids "
+        "leak source identities between train and val and produce "
+        "anti-correlated val AUROC. The script will print exact download "
+        "commands if the files aren't present.",
+    )
+    parser.add_argument(
         "--baselines",
         type=str,
         default="all",
@@ -364,31 +410,59 @@ def main() -> int:
             )
     print(f"[pivot] active baselines: {sorted(active_baselines)}")
 
-    from forge_detect.datasets import split_videos
-
     args.runs_dir.mkdir(parents=True, exist_ok=True)
-    print("[pivot] enumerating videos for the disjoint split ...")
-    all_video_ids = _all_video_ids(args)
-    train_vids, val_vids, test_vids = split_videos(
-        all_video_ids,
-        seed=args.seed,
-        val_fraction=args.val_fraction,
-        test_fraction=args.test_fraction,
-    )
-    print(
-        f"[pivot] split: train={len(train_vids)} val={len(val_vids)} test={len(test_vids)} "
-        f"(of {len(all_video_ids)} total videos)",
-    )
 
-    train_ds = _build_dataset(
-        args, subset_video_ids=train_vids, frames_per_video=args.frames_per_video_train,
-    )
-    val_ds = _build_dataset(
-        args, subset_video_ids=val_vids, frames_per_video=args.frames_per_video_eval,
-    )
-    test_ds = _build_dataset(
-        args, subset_video_ids=test_vids, frames_per_video=args.frames_per_video_eval,
-    )
+    if args.use_ff_splits and args.dataset == "face-forensics":
+        # Official FF++ splits: identity-disjoint by construction.
+        _check_ff_splits_present(args.data_root)
+        print("[pivot] using official FF++ splits/<name>.json")
+        train_ds = _build_dataset(
+            args, ff_split="train", frames_per_video=args.frames_per_video_train,
+        )
+        val_ds = _build_dataset(
+            args, ff_split="val", frames_per_video=args.frames_per_video_eval,
+        )
+        test_ds = _build_dataset(
+            args, ff_split="test", frames_per_video=args.frames_per_video_eval,
+        )
+    else:
+        from forge_detect.datasets import split_videos
+
+        print("[pivot] enumerating videos for the disjoint split ...")
+        all_video_ids = _all_video_ids(args)
+        train_vids, val_vids, test_vids = split_videos(
+            all_video_ids,
+            seed=args.seed,
+            val_fraction=args.val_fraction,
+            test_fraction=args.test_fraction,
+        )
+        print(
+            f"[pivot] split: train={len(train_vids)} val={len(val_vids)} "
+            f"test={len(test_vids)} (of {len(all_video_ids)} total videos)",
+        )
+        if args.dataset == "face-forensics":
+            print(
+                "[pivot] WARNING: random splits over FF++ video_ids can leak "
+                "identities between train and val (a real id like '001' may be "
+                "in train while a fake 'X_001' or '001_Y' appears in val, "
+                "letting the model memorise identity 001's face on train and "
+                "predict 'real' on its val fake → systematic anti-correlated "
+                "val AUROC). Use --use-ff-splits with the official "
+                "splits/<name>.json files for an identity-disjoint partition.",
+            )
+
+        train_ds = _build_dataset(
+            args, subset_video_ids=train_vids,
+            frames_per_video=args.frames_per_video_train,
+        )
+        val_ds = _build_dataset(
+            args, subset_video_ids=val_vids,
+            frames_per_video=args.frames_per_video_eval,
+        )
+        test_ds = _build_dataset(
+            args, subset_video_ids=test_vids,
+            frames_per_video=args.frames_per_video_eval,
+        )
     print(f"[pivot] frames: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}")
 
     report: dict[str, Any] = {"baselines": {}, "args": vars(args)}

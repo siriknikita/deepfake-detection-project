@@ -46,19 +46,20 @@ from typing import Any
 def _build_ff_dataset(
     args: argparse.Namespace,
     *,
-    subset_video_ids: set[str] | None,
+    subset_video_ids: set[str] | None = None,
+    ff_split: str | None = None,
     physics_variant: str,
     frames_per_video: int | None,
 ) -> Any:
     """Build the FF++ adapter for a video subset.
 
-    Mirrors ``scripts/pivot_study.py``'s pattern: callers run
-    :func:`forge_detect.datasets.split_videos` over the full enumerated
-    video set and pass the per-split ``video_ids`` here. We deliberately do
-    NOT use ``ff_split=`` (which loads ``splits/<name>.json``) because the
-    user's FF++ tree may not ship those files; both scripts must use the
-    same random-split convention so a baseline_3ch run and a physics_6ch
-    run with the same ``--seed`` see the same train/val/test partitions.
+    Pass ``ff_split`` (official FF++ splits/<name>.json) for identity-disjoint
+    partitions — the only correct choice when the splits files exist. Falls
+    back to ``subset_video_ids`` (random video-disjoint split via
+    :func:`forge_detect.datasets.split_videos`) when the user hasn't
+    downloaded the official splits; this random path is documented to leak
+    identities between train and val and is included only for parity with
+    pivot_study.py's fallback so the comparison stays apples-to-apples.
     """
     from forge_detect.datasets import FaceForensicsAdapter
 
@@ -69,9 +70,31 @@ def _build_ff_dataset(
         max_frames_per_video=frames_per_video,
         target_size=target_size,
         subset_video_ids=subset_video_ids,
+        ff_split=ff_split,
         load_physics_maps=True,
         physics_variant=physics_variant,
     )
+
+
+def _check_ff_splits_present(data_root: Path) -> None:
+    """See :func:`pivot_study._check_ff_splits_present`."""
+    splits_dir = Path(data_root) / "splits"
+    needed = ["train.json", "val.json", "test.json"]
+    missing = [n for n in needed if not (splits_dir / n).exists()]
+    if not missing:
+        return
+    base = "https://raw.githubusercontent.com/ondyari/FaceForensics/master/dataset/splits"
+    cmds = "\n".join(
+        f"  curl -L -o {splits_dir / n} {base}/{n}" for n in needed
+    )
+    msg = (
+        f"Official FF++ split files missing under {splits_dir}: {missing}\n"
+        f"Create the directory and download them:\n"
+        f"  mkdir -p {splits_dir}\n"
+        f"{cmds}\n"
+        "Then re-run with --use-ff-splits."
+    )
+    raise FileNotFoundError(msg)
 
 
 def _enumerate_ff_video_ids(args: argparse.Namespace) -> list[str]:
@@ -239,6 +262,15 @@ def main() -> int:
         "by default and works on all 6 channels uniformly — the spatial flip "
         "preserves RGB / physics-map alignment.",
     )
+    parser.add_argument(
+        "--use-ff-splits",
+        action="store_true",
+        help="Use the official FF++ splits/{train,val,test}.json files. "
+        "Strongly recommended — random splits over compound fake video_ids "
+        "leak source identities between train and val. Pass the same flag to "
+        "pivot_study.py for the baseline_3ch run so both experiments use the "
+        "same partition.",
+    )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--no-pretrained", action="store_true")
@@ -255,37 +287,56 @@ def main() -> int:
     print(f"[physics-6ch] runs_dir = {args.runs_dir}")
     print(f"[physics-6ch] variant = {args.variant}")
 
-    from forge_detect.datasets import split_videos
-
-    print("[physics-6ch] enumerating videos for the disjoint split ...")
-    all_video_ids = _enumerate_ff_video_ids(args)
-    train_vids, val_vids, test_vids = split_videos(
-        all_video_ids,
-        seed=args.seed,
-        val_fraction=args.val_fraction,
-        test_fraction=args.test_fraction,
-    )
-    print(
-        f"[physics-6ch] split: train={len(train_vids)} val={len(val_vids)} "
-        f"test={len(test_vids)} (of {len(all_video_ids)} total videos)",
-    )
-
     print("[physics-6ch] building FF++ datasets (load_physics_maps=True) ...")
     # All three splits use the configured variant. For the FF++-only protocol
     # this avoids the train/test distribution shift that would arise if train
     # used GT masks but val/test fell back to heuristic.
-    train_ds = _build_ff_dataset(
-        args, subset_video_ids=train_vids, physics_variant=args.variant,
-        frames_per_video=args.frames_per_video_train,
-    )
-    val_ds = _build_ff_dataset(
-        args, subset_video_ids=val_vids, physics_variant=args.variant,
-        frames_per_video=args.frames_per_video_eval,
-    )
-    test_ds = _build_ff_dataset(
-        args, subset_video_ids=test_vids, physics_variant=args.variant,
-        frames_per_video=args.frames_per_video_eval,
-    )
+    if args.use_ff_splits:
+        _check_ff_splits_present(args.data_root)
+        print("[physics-6ch] using official FF++ splits/<name>.json")
+        train_ds = _build_ff_dataset(
+            args, ff_split="train", physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_train,
+        )
+        val_ds = _build_ff_dataset(
+            args, ff_split="val", physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_eval,
+        )
+        test_ds = _build_ff_dataset(
+            args, ff_split="test", physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_eval,
+        )
+    else:
+        from forge_detect.datasets import split_videos
+
+        print("[physics-6ch] enumerating videos for the disjoint split ...")
+        all_video_ids = _enumerate_ff_video_ids(args)
+        train_vids, val_vids, test_vids = split_videos(
+            all_video_ids,
+            seed=args.seed,
+            val_fraction=args.val_fraction,
+            test_fraction=args.test_fraction,
+        )
+        print(
+            f"[physics-6ch] split: train={len(train_vids)} val={len(val_vids)} "
+            f"test={len(test_vids)} (of {len(all_video_ids)} total videos)",
+        )
+        print(
+            "[physics-6ch] WARNING: random split over FF++ video_ids leaks "
+            "identities between train and val (see --use-ff-splits).",
+        )
+        train_ds = _build_ff_dataset(
+            args, subset_video_ids=train_vids, physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_train,
+        )
+        val_ds = _build_ff_dataset(
+            args, subset_video_ids=val_vids, physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_eval,
+        )
+        test_ds = _build_ff_dataset(
+            args, subset_video_ids=test_vids, physics_variant=args.variant,
+            frames_per_video=args.frames_per_video_eval,
+        )
     print(
         f"[physics-6ch] frames: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}",
     )
