@@ -151,6 +151,7 @@ def _run_baseline_cnn(
         "checkpoint_dir": run_dir.parent,  # ignored — resume_dir wins
         "balance_classes": not args.no_balance,
         "augment_hflip": not args.no_augment,
+        "freeze_bn": not args.no_freeze_bn,
     }
     if args.lr is not None:
         cfg_kwargs["learning_rate"] = args.lr
@@ -375,6 +376,17 @@ def main() -> int:
         help="Disable random horizontal flip augmentation during training. "
         "Augmentation is on by default — without it, EfficientNet-B0 overfits "
         "the limited number of unique training videos within a few epochs.",
+    )
+    parser.add_argument(
+        "--no-freeze-bn",
+        action="store_true",
+        help="Allow BatchNorm running statistics to update during training "
+        "(default: frozen at the pretrained ImageNet values). With WRS-"
+        "balanced batches, BN in train mode normalises away the real-vs-fake "
+        "feature differences and the classifier head loses its gradient "
+        "signal — symptom is AUROC stuck at 0.5 with the head bias bouncing "
+        "epoch-to-epoch. Re-enable only after the baseline trains correctly "
+        "and you want to see whether BN tuning helps or hurts on FF++.",
     )
     parser.add_argument(
         "--use-ff-splits",

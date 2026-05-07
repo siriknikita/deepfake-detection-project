@@ -146,6 +146,7 @@ def _train(
         checkpoint_dir=run_dir.parent,  # ignored — resume_dir wins
         balance_classes=not args.no_balance,
         augment_hflip=not args.no_augment,
+        freeze_bn=not args.no_freeze_bn,
         mixed_precision=args.amp,
     )
 
@@ -261,6 +262,14 @@ def main() -> int:
         help="Disable random horizontal flip augmentation. Augmentation is on "
         "by default and works on all 6 channels uniformly — the spatial flip "
         "preserves RGB / physics-map alignment.",
+    )
+    parser.add_argument(
+        "--no-freeze-bn",
+        action="store_true",
+        help="Allow BatchNorm running stats to update during training "
+        "(default: frozen at pretrained ImageNet values). With WRS-balanced "
+        "batches, train-mode BN normalises away class-discriminative feature "
+        "differences and the classifier head loses its gradient signal.",
     )
     parser.add_argument(
         "--use-ff-splits",

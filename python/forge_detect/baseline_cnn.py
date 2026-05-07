@@ -228,6 +228,17 @@ class BaselineConfig:
     AUROC=0.5 but is the model learning within the epoch?" — without
     this you only see the epoch average and can't tell whether loss is
     actually trending down batch-to-batch."""
+    freeze_bn: bool = True
+    """Freeze BatchNorm layers in eval mode during training: BN stats stay
+    at their pretrained ImageNet values, batch statistics are not used or
+    accumulated. Standard recipe for fine-tuning a pretrained backbone on
+    a balanced binary task. Without this, BN re-normalises each batch
+    using its own statistics; for a balanced 50/50 real:fake batch this
+    averages away the very real-vs-fake feature differences we need the
+    classifier to discriminate on, leaving the linear head with a
+    label-uncorrelated input and only the bias learns. Symptom: train
+    and val AUROC stuck at 0.5 while val_accuracy bounces wildly with
+    the bias drift."""
 
 
 def _collate(batch: list[Any]) -> tuple[Any, Any]:
@@ -262,6 +273,21 @@ def _maybe_hflip(images: Any, *, p: float = 0.5) -> Any:
     )
 
 
+def _set_bn_eval(model: Any) -> None:
+    """Force every BatchNorm layer to eval mode regardless of model.train().
+
+    Used when ``freeze_bn`` is on: BN stats stay at their pretrained values
+    and the classifier learns from a stable feature distribution instead of
+    the per-batch-renormalised one that washes out class differences.
+    """
+    _torch()  # pull torch into the import path so the next line resolves
+    from torch import nn
+
+    for m in model.modules():
+        if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+            m.eval()
+
+
 def _epoch_pass(  # noqa: PLR0912
     model: Any,
     loader: Any,
@@ -274,6 +300,8 @@ def _epoch_pass(  # noqa: PLR0912
 ) -> dict[str, float]:
     torch = _torch()
     model.train(train)
+    if train and config.freeze_bn:
+        _set_bn_eval(model)
     bce = torch.nn.BCEWithLogitsLoss()
 
     total_loss = 0.0
