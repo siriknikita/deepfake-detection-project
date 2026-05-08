@@ -240,11 +240,13 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument(
         "--learning-rate",
+        "--lr",
         type=float,
         default=1.0e-4,
+        dest="learning_rate",
         help="Default 1e-4 (standard fine-tuning rate for pretrained "
-        "EfficientNet-B0). Higher rates stall the loss at log(2) and never "
-        "recover on this task.",
+        "EfficientNet-B0). Both --learning-rate and --lr accepted (the "
+        "shorter form matches pivot_study.py for parity in shell scripts).",
     )
     parser.add_argument("--weight-decay", type=float, default=1.0e-4)
     parser.add_argument(
