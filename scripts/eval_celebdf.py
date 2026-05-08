@@ -54,12 +54,16 @@ def _build_dataset(
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     frames_subdir = "frames_faces" if args.use_face_crops else "frames"
+    # The published 518-video benchmark file ships with Celeb-DF v2 only;
+    # v1 has no canonical testing list. --all-videos (or any root that
+    # lacks List_of_testing_videos.txt) walks the whole tree instead.
+    testing_list: bool = not args.all_videos
     if channel_sources is not None:
         return CelebDFAdapter(
             root=args.celeb_data_root,
             max_frames_per_video=args.frames_per_video,
             target_size=target_size,
-            testing_list=True,
+            testing_list=testing_list,
             channel_sources=channel_sources,
             frames_subdir=frames_subdir,
         )
@@ -67,7 +71,7 @@ def _build_dataset(
         root=args.celeb_data_root,
         max_frames_per_video=args.frames_per_video,
         target_size=target_size,
-        testing_list=True,
+        testing_list=testing_list,
         load_physics_maps=load_physics_maps,
         frames_subdir=frames_subdir,
     )
@@ -132,6 +136,16 @@ def main() -> int:
         "'physics:<variant>', 'frequency', 'frequency:<variant>'. When "
         "omitted with --model physics, the legacy 6-channel Phase-2 build "
         "is assumed. Ignored for --model baseline.",
+    )
+    parser.add_argument(
+        "--all-videos",
+        action="store_true",
+        help="Skip the published 518-video Celeb-DF v2 testing list and "
+        "evaluate on every video under --celeb-data-root. Required for "
+        "Celeb-DF v1 (which has no canonical testing-list file) and useful "
+        "for any custom Celeb-style root. Default off (uses the v2 testing "
+        "list, which is the only methodologically defensible choice for "
+        "v2 cross-dataset numbers reported in the paper).",
     )
     args = parser.parse_args()
 
