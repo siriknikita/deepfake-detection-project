@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pickle
 import tempfile
 from pathlib import Path
 
@@ -191,3 +192,26 @@ def test_npz_key_constants_are_aligned() -> None:
     """Module-level constants stay in sync with the source keys."""
     assert physics_channel_source().npz_keys == PHYSICS_NPZ_KEYS
     assert frequency_channel_source().npz_keys == FREQUENCY_NPZ_KEYS
+
+
+def test_built_in_sources_are_picklable() -> None:
+    """torch.utils.data.DataLoader spawns worker processes for num_workers>0
+    and pickles the dataset (and through it the channel sources) into each
+    worker. Lambdas in cache_path_fn would break this — the built-in
+    physics / frequency sources use functools.partial instead. This test
+    locks in pickleability so the regression can't return.
+    """
+    for src in [
+        physics_channel_source("heuristic"),
+        physics_channel_source("gtmask"),
+        frequency_channel_source("default"),
+    ]:
+        blob = pickle.dumps(src)
+        restored = pickle.loads(blob)
+        assert restored.name == src.name
+        assert restored.n_channels == src.n_channels
+        assert restored.npz_keys == src.npz_keys
+        # The cache_path_fn must remain callable after the round-trip and
+        # produce the same path the original source would.
+        sample = Path("/data/X/c23/frames/v0/0001.png")
+        assert restored.cache_path_fn(sample) == src.cache_path_fn(sample)

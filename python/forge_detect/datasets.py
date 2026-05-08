@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -211,14 +212,19 @@ def _normalize_frequency(arrays: dict[str, np.ndarray]) -> np.ndarray:
 
 
 def physics_channel_source(variant: str = "heuristic") -> ChannelSource:
-    """Build a :class:`ChannelSource` for the Phase-2 physics maps."""
+    """Build a :class:`ChannelSource` for the Phase-2 physics maps.
+
+    The cache_path_fn is a ``functools.partial`` (not a lambda) so the
+    returned source survives pickling across DataLoader worker processes
+    spawned by multiprocessing.
+    """
     if variant not in PHYSICS_VARIANTS:
         msg = f"physics variant must be one of {PHYSICS_VARIANTS}, got {variant!r}"
         raise ValueError(msg)
     return ChannelSource(
         name=f"physics:{variant}",
         n_channels=3,
-        cache_path_fn=lambda p: physics_npz_path(p, variant),
+        cache_path_fn=partial(physics_npz_path, variant=variant),
         npz_keys=PHYSICS_NPZ_KEYS,
         normalize=_normalize_physics,
         extra={"family": "physics", "variant": variant},
@@ -226,14 +232,17 @@ def physics_channel_source(variant: str = "heuristic") -> ChannelSource:
 
 
 def frequency_channel_source(variant: str = "default") -> ChannelSource:
-    """Build a :class:`ChannelSource` for the Phase-3 frequency maps."""
+    """Build a :class:`ChannelSource` for the Phase-3 frequency maps.
+
+    See :func:`physics_channel_source` for the partial-vs-lambda rationale.
+    """
     if variant not in FREQUENCY_VARIANTS:
         msg = f"frequency variant must be one of {FREQUENCY_VARIANTS}, got {variant!r}"
         raise ValueError(msg)
     return ChannelSource(
         name=f"frequency:{variant}",
         n_channels=3,
-        cache_path_fn=lambda p: frequency_npz_path(p, variant),
+        cache_path_fn=partial(frequency_npz_path, variant=variant),
         npz_keys=FREQUENCY_NPZ_KEYS,
         normalize=_normalize_frequency,
         extra={"family": "frequency", "variant": variant},
