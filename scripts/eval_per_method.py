@@ -39,24 +39,35 @@ def _build_dataset(
     *,
     methods: tuple[str, ...],
     load_physics_maps: bool,
+    channel_sources: Any | None = None,
 ) -> Any:
-    """Build the FF++ test-split adapter restricted to ``methods``."""
+    """Build the FF++ test-split adapter restricted to ``methods``.
+
+    When ``channel_sources`` is provided (multi-source / Phase 3+ path),
+    the adapter ignores ``load_physics_maps`` and reads from each source's
+    cache. When ``channel_sources`` is ``None``, the legacy
+    ``load_physics_maps`` boolean controls the 3-channel vs 6-channel
+    behaviour.
+    """
     from forge_detect.datasets import FaceForensicsAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     frames_subdir = "frames_faces" if args.use_face_crops else "frames"
+    common_kwargs: dict[str, Any] = {
+        "root": args.data_root,
+        "methods": methods,
+        "compression": args.compression,
+        "max_frames_per_video": args.frames_per_video,
+        "target_size": target_size,
+        "frames_subdir": frames_subdir,
+    }
+    if channel_sources is not None:
+        common_kwargs["channel_sources"] = channel_sources
+    else:
+        common_kwargs["load_physics_maps"] = load_physics_maps
+        common_kwargs["physics_variant"] = "heuristic"
     if args.use_ff_splits:
-        return FaceForensicsAdapter(
-            root=args.data_root,
-            methods=methods,
-            compression=args.compression,
-            max_frames_per_video=args.frames_per_video,
-            target_size=target_size,
-            ff_split="test",
-            load_physics_maps=load_physics_maps,
-            physics_variant="heuristic",
-            frames_subdir=frames_subdir,
-        )
+        return FaceForensicsAdapter(ff_split="test", **common_kwargs)
     # Random-split fallback: only useful for debugging — use --use-ff-splits.
     from forge_detect.datasets import split_videos
 
@@ -74,20 +85,10 @@ def _build_dataset(
         val_fraction=args.val_fraction,
         test_fraction=args.test_fraction,
     )
-    return FaceForensicsAdapter(
-        root=args.data_root,
-        methods=methods,
-        compression=args.compression,
-        max_frames_per_video=args.frames_per_video,
-        target_size=target_size,
-        subset_video_ids=test_vids,
-        load_physics_maps=load_physics_maps,
-        physics_variant="heuristic",
-        frames_subdir=frames_subdir,
-    )
+    return FaceForensicsAdapter(subset_video_ids=test_vids, **common_kwargs)
 
 
-def _load_model(args: argparse.Namespace, kind: str) -> Any:
+def _load_model(args: argparse.Namespace, kind: str, *, in_channels: int) -> Any:
     from forge_detect.baseline_cnn import (
         build_baseline_classifier,
         build_physics_classifier,
@@ -99,11 +100,14 @@ def _load_model(args: argparse.Namespace, kind: str) -> Any:
         model = build_baseline_classifier(pretrained=False)
     elif kind == "physics":
         weights = args.physics_weights
-        model = build_physics_classifier(in_channels=6, pretrained=False)
+        model = build_physics_classifier(in_channels=in_channels, pretrained=False)
     else:
         msg = f"unknown kind {kind!r}"
         raise ValueError(msg)
-    if not weights or not Path(weights).exists():
+    # `argparse(type=Path)` turns an empty string into Path(".") which is
+    # truthy and exists() == True. Use is_file() so the documented "set to ''
+    # to skip" behaviour actually works for both empty strings and bogus paths.
+    if not weights or not Path(weights).is_file():
         return None
     load_weights(model, weights)
     return model
@@ -182,6 +186,16 @@ def main() -> int:  # noqa: PLR0912
         default=",".join(FF_METHODS),
         help="Comma-separated subset of FF++ methods. Default: all four.",
     )
+    parser.add_argument(
+        "--channels",
+        type=str,
+        default=None,
+        help="Channel spec for the physics model (Phase 3+). Must match "
+        "the spec used at training time. Tokens: 'rgb', 'physics', "
+        "'physics:<variant>', 'frequency', 'frequency:<variant>'. When "
+        "omitted, the physics model is treated as the legacy 6-channel "
+        "Phase-2 build (RGB + heuristic physics).",
+    )
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
 
@@ -191,6 +205,15 @@ def main() -> int:  # noqa: PLR0912
         msg = f"unknown methods: {invalid}; pick from {FF_METHODS}"
         raise ValueError(msg)
 
+    if args.channels is not None:
+        from forge_detect.datasets import parse_channel_spec, total_channels
+
+        channel_sources: Any = parse_channel_spec(args.channels)
+        physics_in_channels = total_channels(channel_sources)
+    else:
+        channel_sources = None
+        physics_in_channels = 6
+
     print(f"[per-method] data_root      = {args.data_root}")
     print(f"[per-method] baseline best  = {args.baseline_weights}")
     print(f"[per-method] physics  best  = {args.physics_weights}")
@@ -198,9 +221,15 @@ def main() -> int:  # noqa: PLR0912
     split_label = "official FF++" if args.use_ff_splits else "random video-disjoint"
     print(f"[per-method] split source   = {split_label}")
     print(f"[per-method] methods        = {methods}")
+    print(f"[per-method] physics in_channels = {physics_in_channels}")
+    if channel_sources is not None:
+        print(
+            f"[per-method] channel sources: "
+            f"{[s.name for s in channel_sources]}",
+        )
 
-    bl_model = _load_model(args, "baseline")
-    ph_model = _load_model(args, "physics")
+    bl_model = _load_model(args, "baseline", in_channels=3)
+    ph_model = _load_model(args, "physics", in_channels=physics_in_channels)
     if bl_model is None and ph_model is None:
         print("[per-method] ERROR: neither weights file found; nothing to evaluate")
         return 1
@@ -211,7 +240,7 @@ def main() -> int:  # noqa: PLR0912
     for m in methods:
         print()
         print(f"[per-method] === {m} ===")
-        # 3ch baseline does not need physics maps
+        # 3ch baseline does not need physics/frequency maps
         if bl_model is not None:
             ds = _build_dataset(args, methods=(m,), load_physics_maps=False)
             print(f"  baseline test set: {len(ds)} frames")
@@ -219,7 +248,12 @@ def main() -> int:  # noqa: PLR0912
         else:
             bl_metrics = None
         if ph_model is not None:
-            ds = _build_dataset(args, methods=(m,), load_physics_maps=True)
+            ds = _build_dataset(
+                args,
+                methods=(m,),
+                load_physics_maps=channel_sources is None,
+                channel_sources=channel_sources,
+            )
             print(f"  physics  test set: {len(ds)} frames")
             ph_metrics = _evaluate(ph_model, ds, args)
         else:
@@ -248,7 +282,12 @@ def main() -> int:  # noqa: PLR0912
     else:
         bl_combined = None
     if ph_model is not None:
-        ds = _build_dataset(args, methods=tuple(FF_METHODS), load_physics_maps=True)
+        ds = _build_dataset(
+            args,
+            methods=tuple(FF_METHODS),
+            load_physics_maps=channel_sources is None,
+            channel_sources=channel_sources,
+        )
         print(f"  physics  test set: {len(ds)} frames")
         ph_combined = _evaluate(ph_model, ds, args)
     else:

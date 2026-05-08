@@ -44,22 +44,40 @@ from pathlib import Path
 from typing import Any
 
 
-def _build_dataset(args: argparse.Namespace, *, load_physics_maps: bool) -> Any:
+def _build_dataset(
+    args: argparse.Namespace,
+    *,
+    load_physics_maps: bool,
+    channel_sources: Any | None = None,
+) -> Any:
     from forge_detect.datasets import CelebDFAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     frames_subdir = "frames_faces" if args.use_face_crops else "frames"
+    # The published 518-video benchmark file ships with Celeb-DF v2 only;
+    # v1 has no canonical testing list. --all-videos (or any root that
+    # lacks List_of_testing_videos.txt) walks the whole tree instead.
+    testing_list: bool = not args.all_videos
+    if channel_sources is not None:
+        return CelebDFAdapter(
+            root=args.celeb_data_root,
+            max_frames_per_video=args.frames_per_video,
+            target_size=target_size,
+            testing_list=testing_list,
+            channel_sources=channel_sources,
+            frames_subdir=frames_subdir,
+        )
     return CelebDFAdapter(
         root=args.celeb_data_root,
         max_frames_per_video=args.frames_per_video,
         target_size=target_size,
-        testing_list=True,
+        testing_list=testing_list,
         load_physics_maps=load_physics_maps,
         frames_subdir=frames_subdir,
     )
 
 
-def _build_model(args: argparse.Namespace) -> Any:
+def _build_model(args: argparse.Namespace, *, in_channels: int) -> Any:
     from forge_detect.baseline_cnn import (
         build_baseline_classifier,
         build_physics_classifier,
@@ -69,7 +87,7 @@ def _build_model(args: argparse.Namespace) -> Any:
     if args.model == "baseline":
         model = build_baseline_classifier(pretrained=False)
     elif args.model == "physics":
-        model = build_physics_classifier(in_channels=6, pretrained=False)
+        model = build_physics_classifier(in_channels=in_channels, pretrained=False)
     else:
         msg = f"--model must be 'baseline' or 'physics', got {args.model!r}"
         raise ValueError(msg)
@@ -109,16 +127,48 @@ def main() -> int:
         default=None,
         help="Where to write the JSON report. Default: print only.",
     )
+    parser.add_argument(
+        "--channels",
+        type=str,
+        default=None,
+        help="Channel spec for --model physics (Phase 3+). Must match the "
+        "spec used at training time. Tokens: 'rgb', 'physics', "
+        "'physics:<variant>', 'frequency', 'frequency:<variant>'. When "
+        "omitted with --model physics, the legacy 6-channel Phase-2 build "
+        "is assumed. Ignored for --model baseline.",
+    )
+    parser.add_argument(
+        "--all-videos",
+        action="store_true",
+        help="Skip the published 518-video Celeb-DF v2 testing list and "
+        "evaluate on every video under --celeb-data-root. Required for "
+        "Celeb-DF v1 (which has no canonical testing-list file) and useful "
+        "for any custom Celeb-style root. Default off (uses the v2 testing "
+        "list, which is the only methodologically defensible choice for "
+        "v2 cross-dataset numbers reported in the paper).",
+    )
     args = parser.parse_args()
 
-    if not args.weights.exists():
-        msg = f"--weights path does not exist: {args.weights}"
+    if not args.weights.is_file():
+        msg = f"--weights is not a file: {args.weights}"
         raise FileNotFoundError(msg)
     if not args.celeb_data_root.exists():
         msg = f"--celeb-data-root does not exist: {args.celeb_data_root}"
         raise FileNotFoundError(msg)
 
     needs_physics = args.model == "physics"
+
+    if needs_physics and args.channels is not None:
+        from forge_detect.datasets import parse_channel_spec, total_channels
+
+        channel_sources: Any = parse_channel_spec(args.channels)
+        in_channels = total_channels(channel_sources)
+    elif needs_physics:
+        channel_sources = None
+        in_channels = 6
+    else:
+        channel_sources = None
+        in_channels = 3
 
     print(f"[eval-celeb] model = {args.model}")
     print(f"[eval-celeb] weights = {args.weights}")
@@ -127,15 +177,23 @@ def main() -> int:
         f"[eval-celeb] frames_subdir = "
         f"{'frames_faces' if args.use_face_crops else 'frames'}",
     )
-    if needs_physics:
+    print(f"[eval-celeb] in_channels = {in_channels}")
+    if channel_sources is not None:
+        print(
+            f"[eval-celeb] channel sources: "
+            f"{[s.name for s in channel_sources]}",
+        )
+    elif needs_physics:
         print("[eval-celeb] dataset will load physics maps (heuristic variant)")
 
     print("[eval-celeb] building dataset (Celeb-DF testing list, 518 videos) ...")
-    ds = _build_dataset(args, load_physics_maps=needs_physics)
+    ds = _build_dataset(
+        args, load_physics_maps=needs_physics, channel_sources=channel_sources,
+    )
     print(f"[eval-celeb] dataset: {len(ds)} frames across {len(ds.video_ids())} videos")
 
     print("[eval-celeb] building model and loading weights ...")
-    model = _build_model(args)
+    model = _build_model(args, in_channels=in_channels)
 
     print(f"[eval-celeb] evaluating on {args.device} ...")
     from forge_detect.baseline_cnn import evaluate_baseline_cnn

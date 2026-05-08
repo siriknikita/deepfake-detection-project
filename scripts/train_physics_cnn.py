@@ -50,6 +50,7 @@ def _build_ff_dataset(
     ff_split: str | None = None,
     physics_variant: str,
     frames_per_video: int | None,
+    channel_sources: Any,
 ) -> Any:
     """Build the FF++ adapter for a video subset.
 
@@ -60,11 +61,27 @@ def _build_ff_dataset(
     downloaded the official splits; this random path is documented to leak
     identities between train and val and is included only for parity with
     pivot_study.py's fallback so the comparison stays apples-to-apples.
+
+    When ``channel_sources`` is a non-empty list, the adapter is built with
+    the multi-source channel API (Phase 3+) and ``physics_variant`` is
+    ignored. When it is ``None``, the legacy ``load_physics_maps=True``
+    code path with the configured variant is used (Phase 2 default).
     """
     from forge_detect.datasets import FaceForensicsAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     frames_subdir = "frames_faces" if args.use_face_crops else "frames"
+    if channel_sources is not None:
+        return FaceForensicsAdapter(
+            root=args.data_root,
+            compression=args.compression,
+            max_frames_per_video=frames_per_video,
+            target_size=target_size,
+            subset_video_ids=subset_video_ids,
+            ff_split=ff_split,
+            channel_sources=channel_sources,
+            frames_subdir=frames_subdir,
+        )
     return FaceForensicsAdapter(
         root=args.data_root,
         compression=args.compression,
@@ -112,11 +129,20 @@ def _enumerate_ff_video_ids(args: argparse.Namespace) -> list[str]:
     return full.video_ids()
 
 
-def _build_celeb_dataset(args: argparse.Namespace) -> Any:
+def _build_celeb_dataset(args: argparse.Namespace, *, channel_sources: Any) -> Any:
     from forge_detect.datasets import CelebDFAdapter
 
     target_size = (args.image_size, args.image_size) if args.image_size else None
     frames_subdir = "frames_faces" if args.use_face_crops else "frames"
+    if channel_sources is not None:
+        return CelebDFAdapter(
+            root=args.celeb_data_root,
+            max_frames_per_video=args.frames_per_video_eval,
+            target_size=target_size,
+            testing_list=True,
+            channel_sources=channel_sources,
+            frames_subdir=frames_subdir,
+        )
     return CelebDFAdapter(
         root=args.celeb_data_root,
         max_frames_per_video=args.frames_per_video_eval,
@@ -131,6 +157,9 @@ def _train(
     args: argparse.Namespace,
     train_ds: Any,
     val_ds: Any,
+    *,
+    in_channels: int,
+    log_tag: str,
 ) -> tuple[Path, dict[str, list[dict[str, float]] | str]]:
     from forge_detect.baseline_cnn import (
         BaselineConfig,
@@ -155,7 +184,7 @@ def _train(
     )
 
     def factory(*, pretrained: bool) -> Any:
-        return build_physics_classifier(in_channels=6, pretrained=pretrained)
+        return build_physics_classifier(in_channels=in_channels, pretrained=pretrained)
 
     out = train_baseline_cnn(
         train_ds,
@@ -164,7 +193,7 @@ def _train(
         pretrained=not args.no_pretrained,
         resume_dir=run_dir,
         model_factory=factory,
-        log_tag=f"physics-6ch-{args.variant}",
+        log_tag=log_tag,
     )
     return run_dir, out
 
@@ -178,7 +207,7 @@ def _evaluate(
 ) -> dict[str, float]:
     from forge_detect.baseline_cnn import evaluate_baseline_cnn
 
-    print(f"[physics-6ch] evaluating on {label} ({len(dataset)} frames) ...")
+    print(f"[eval] {label}: {len(dataset)} frames")
     metrics = evaluate_baseline_cnn(
         model,
         dataset,
@@ -294,6 +323,20 @@ def main() -> int:
         "Run scripts/extract_faces.py and scripts/cache_physics_maps.py "
         "--frames-subdir frames_faces first.",
     )
+    parser.add_argument(
+        "--channels",
+        type=str,
+        default=None,
+        help="Comma-separated list of input-channel families (Phase 3+). "
+        "Tokens (case-insensitive): 'rgb' (implicit base, optional), "
+        "'physics' or 'physics:<variant>', 'frequency' or "
+        "'frequency:<variant>'. Examples: 'rgb,physics,frequency' for the "
+        "9-channel Phase-3 configuration, 'rgb,physics' for the Phase-2 "
+        "6-channel configuration. When omitted, falls back to the legacy "
+        "physics-only path driven by --variant (Phase-2 default). The "
+        "frequency cache must already exist — run "
+        "scripts/cache_frequency_maps.py before training.",
+    )
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--no-pretrained", action="store_true")
@@ -307,32 +350,56 @@ def main() -> int:
     args = parser.parse_args()
 
     args.runs_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[physics-6ch] runs_dir = {args.runs_dir}")
-    print(f"[physics-6ch] variant = {args.variant}")
 
-    print("[physics-6ch] building FF++ datasets (load_physics_maps=True) ...")
+    # Resolve channel sources up front so train + eval share the same spec.
+    if args.channels is not None:
+        from forge_detect.datasets import parse_channel_spec, total_channels
+
+        channel_sources = parse_channel_spec(
+            args.channels, physics_variant=args.variant,
+        )
+        in_channels = total_channels(channel_sources)
+        log_tag = f"physics-{in_channels}ch-{args.channels.replace(',', '+')}"
+    else:
+        channel_sources = None
+        in_channels = 6
+        log_tag = f"physics-6ch-{args.variant}"
+
+    print(f"[{log_tag}] runs_dir = {args.runs_dir}")
+    print(f"[{log_tag}] variant = {args.variant}")
+    print(f"[{log_tag}] in_channels = {in_channels}")
+    if channel_sources is not None:
+        print(
+            f"[{log_tag}] channel sources: "
+            f"{[s.name for s in channel_sources]}",
+        )
+
+    print(f"[{log_tag}] building FF++ datasets ...")
     # All three splits use the configured variant. For the FF++-only protocol
     # this avoids the train/test distribution shift that would arise if train
     # used GT masks but val/test fell back to heuristic.
     if args.use_ff_splits:
         _check_ff_splits_present(args.data_root)
-        print("[physics-6ch] using official FF++ splits/<name>.json")
+        print(f"[{log_tag}] using official FF++ splits/<name>.json")
         train_ds = _build_ff_dataset(
             args, ff_split="train", physics_variant=args.variant,
             frames_per_video=args.frames_per_video_train,
+            channel_sources=channel_sources,
         )
         val_ds = _build_ff_dataset(
             args, ff_split="val", physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
+            channel_sources=channel_sources,
         )
         test_ds = _build_ff_dataset(
             args, ff_split="test", physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
+            channel_sources=channel_sources,
         )
     else:
         from forge_detect.datasets import split_videos
 
-        print("[physics-6ch] enumerating videos for the disjoint split ...")
+        print(f"[{log_tag}] enumerating videos for the disjoint split ...")
         all_video_ids = _enumerate_ff_video_ids(args)
         train_vids, val_vids, test_vids = split_videos(
             all_video_ids,
@@ -341,32 +408,37 @@ def main() -> int:
             test_fraction=args.test_fraction,
         )
         print(
-            f"[physics-6ch] split: train={len(train_vids)} val={len(val_vids)} "
+            f"[{log_tag}] split: train={len(train_vids)} val={len(val_vids)} "
             f"test={len(test_vids)} (of {len(all_video_ids)} total videos)",
         )
         print(
-            "[physics-6ch] WARNING: random split over FF++ video_ids leaks "
+            f"[{log_tag}] WARNING: random split over FF++ video_ids leaks "
             "identities between train and val (see --use-ff-splits).",
         )
         train_ds = _build_ff_dataset(
             args, subset_video_ids=train_vids, physics_variant=args.variant,
             frames_per_video=args.frames_per_video_train,
+            channel_sources=channel_sources,
         )
         val_ds = _build_ff_dataset(
             args, subset_video_ids=val_vids, physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
+            channel_sources=channel_sources,
         )
         test_ds = _build_ff_dataset(
             args, subset_video_ids=test_vids, physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
+            channel_sources=channel_sources,
         )
     print(
-        f"[physics-6ch] frames: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}",
+        f"[{log_tag}] frames: train={len(train_ds)} val={len(val_ds)} test={len(test_ds)}",
     )
 
     if not args.skip_train:
         t_train_start = time.time()
-        run_dir, _train_out = _train(args, train_ds, val_ds)
+        run_dir, _train_out = _train(
+            args, train_ds, val_ds, in_channels=in_channels, log_tag=log_tag,
+        )
         train_seconds = time.time() - t_train_start
     else:
         run_dir = args.runs_dir
@@ -384,7 +456,7 @@ def main() -> int:
             "--runs-dir at a completed run."
         )
         raise FileNotFoundError(msg)
-    model = build_physics_classifier(in_channels=6, pretrained=False)
+    model = build_physics_classifier(in_channels=in_channels, pretrained=False)
     load_weights(model, best_path)
 
     report: dict[str, Any] = {
@@ -400,7 +472,7 @@ def main() -> int:
     report["ff_test"] = _evaluate(args, model, test_ds, label="FF++ test")
 
     if args.celeb_data_root is not None:
-        celeb_ds = _build_celeb_dataset(args)
+        celeb_ds = _build_celeb_dataset(args, channel_sources=channel_sources)
         report["n_frames"]["test_celeb"] = len(celeb_ds)
         report["celeb_test"] = _evaluate(args, model, celeb_ds, label="CelebDF testing list")
 
