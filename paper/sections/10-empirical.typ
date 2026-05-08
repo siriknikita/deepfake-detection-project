@@ -373,6 +373,12 @@ dilutes away. Frame-level numbers fall similarly within noise, with the
 The interpretation is therefore neither "the math pipeline rescues the
 classifier" nor "the math pipeline hurts": at this scale the math
 channels are *complementary on a per-frame basis* but do not drive a
-robust per-video uplift over RGB-only EfficientNet-B0 fine-tuning. We
-discuss the implications and what a stronger experimental setup would
-look like in Section 11.
+robust per-video uplift over RGB-only EfficientNet-B0 fine-tuning on
+the combined four-method task. The per-method ablation in Section 11.7
+sharpens the picture considerably — physics features specifically help
+on Deepfakes ($+$0.0074 video AUROC) and hurt on the parametric
+Face2Face ($-$0.0297) and FaceSwap ($-$0.0351), with the combined null
+emerging as the average of these opposing effects — and the
+cross-dataset transfer to Celeb-DF v2 in Section 11.8 confirms the
+finding is method-invariant rather than FF++-specific (every metric
+favours the 6-channel model, max-pool video AUROC by $+$0.0520).
