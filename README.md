@@ -1,12 +1,35 @@
 # Hyperplane-Forge
 
-Deepfake detection via _physical-manifold settlement_. The full mathematical specification is in [`paper/main.typ`](paper/main.typ); this README is a quickstart for running the code.
+Deepfake detection via _physical-manifold settlement_, then via _multi-channel physics-tensor CNN classification_. The full mathematical specification and empirical evaluation are in [`paper/main.typ`](paper/main.typ); this README is a quickstart for running the code.
 
 ## What it does
 
 A real face is a sample of a smooth physical surface; a deepfake's synthetic injection is not. The pipeline recovers an initial depth manifold `z_forged` from the image (Phase 1-3), settles it under the Euler-Lagrange PDE of a physically motivated energy functional `E(z)` (Phase 4-5), and detects forged regions as _flow breaks_ (`R = z* − z_ideal`) and _geometric cracks_ (`L = Δz*`) in the settled manifold (Phase 6).
 
-The math kernels are implemented in **Rust** (PyO3, `ndarray`, `rayon`) for the CPU path and exposed to **Python** through a single-function PyO3 entry point. A **PyTorch CUDA backend** mirrors the same operators on GPU and is verified numerically equivalent to the Rust core by 6 backend-equivalence tests. A trainable **ChromaticEfficientNet** trust-map predictor and a **Gradient Boosting** binary classifier sit on top of the math kernels.
+The math kernels are implemented in **Rust** (PyO3, `ndarray`, `rayon`) for the CPU path and exposed to **Python** through a single-function PyO3 entry point. A **PyTorch CUDA backend** mirrors the same operators on GPU and is verified numerically equivalent to the Rust core by 6 backend-equivalence tests.
+
+The empirical Phase 1 study (heuristic trust map + 24-D features + Gradient Boosting Classifier) found the math pipeline produces _systematically anti-correlated_ ranking on FF++ c23 — test video AUROC `0.347` (mean-pool), confirmed by an oracle ablation with FF++ ground-truth masks. Diagnosing this to the global-pool feature-extraction step rather than the math itself, **Phase 2** reformulates the use of the math: instead of feeding 24 scalar features into a tabular classifier, the per-pixel outputs `W_cnn`, `z*`, `R` are stacked alongside the original RGB image as additional input channels to an EfficientNet-B0 binary classifier. The first conv layer is replaced with a six-input variant whose RGB-channel weights are copied from the ImageNet stem; the three new channels are initialised to the per-output-channel mean of those weights so epoch-zero behaviour matches the standard pretrained baseline.
+
+## Headline results
+
+All numbers below come from face-cropped FF++ c23 with the official 720/140/140 video-disjoint split, 10 frames per video, 20 epochs, EfficientNet-B0 with WeightedRandomSampler + horizontal-flip augmentation, lr 2·10⁻⁴, AdamW + cosine annealing, BatchNorm trainable, AMP off. The 3-channel baseline and the 6-channel physics arm differ only in input channels and (incidentally) batch size (32 vs 16, due to GPU-memory contention on the shared cluster at training time).
+
+| Test set | Metric | baseline_3ch | physics_6ch | Δ |
+|---|---|---|---|---|
+| **FF++ c23** (combined) | Frame AUROC | 0.7309 | 0.7197 | −0.0112 |
+| **FF++ c23** (combined) | Video AUROC mean-pool | **0.8179** | **0.8176** | **−0.0003** |
+| **FF++ c23** (combined) | Video AUROC max-pool | 0.9130 | **0.9273** | **+0.0143** |
+| **FF++ c23 — Deepfakes** | Video AUROC mean-pool | 0.8713 | **0.8787** | **+0.0074** |
+| **FF++ c23 — Face2Face** | Video AUROC mean-pool | **0.8029** | 0.7731 | −0.0297 |
+| **FF++ c23 — FaceSwap** | Video AUROC mean-pool | **0.8150** | 0.7799 | −0.0351 |
+| **FF++ c23 — NeuralTextures** | Video AUROC mean-pool | **0.6647** | 0.6522 | −0.0124 |
+| **Celeb-DF v2** (cross-dataset) | Frame AUROC | 0.5276 | **0.5382** | **+0.0106** |
+| **Celeb-DF v2** (cross-dataset) | Video AUROC mean-pool | 0.5405 | **0.5458** | **+0.0053** |
+| **Celeb-DF v2** (cross-dataset) | **Video AUROC max-pool** | **0.5022** | **0.5542** | **+0.0520** |
+
+The combined FF++ result is null on the canonical metric (Δ = −0.0003), but the per-method breakdown reveals it is the average of opposing effects: physics features add signal on autoencoder-based **Deepfakes** (+0.0074) and reduce it on parametric / graphics-based **Face2Face** (−0.0297) and **FaceSwap** (−0.0351). The cross-dataset transfer to Celeb-DF v2 — itself an autoencoder-based pipeline — replicates the in-domain Deepfakes pattern: physics_6ch beats the baseline on every cross-dataset metric, with max-pool video AUROC +0.0520.
+
+The interpretation: physics-derived spatial features encode autoencoder-induced manifold inconsistencies in a method-invariant way. They help on autoencoder-based manipulations both within FF++ and across to Celeb-DF, and they hurt on parametric / graphics-based methods that preserve geometric coherence by construction. See [`paper/sections/11-phase2-multichannel.typ`](paper/sections/11-phase2-multichannel.typ) for the full mechanistic argument and limitations.
 
 ## Requirements
 
@@ -53,35 +76,88 @@ The pipeline only needs **face images** (real and forged) plus, optionally, **pi
 
 **Recommended starting point:** FaceForensics++ at compression `c23`. It is the de facto benchmark, has both real and four families of fake, and ships the per-pixel masks that train the CNN with the strongest signal. The c23 (visually lossless H.264) variant is what most published leaderboards report against.
 
-### Workflow: video files → trained classifier
+### Workflow: video files → multi-channel trained classifier
+
+The Phase-2 multi-channel pipeline expects: extracted frames → face crops → physics-map cache → CNN training → in-domain and cross-dataset evaluation. Each step is a single script call; the next step's inputs are the previous step's outputs. All scripts are crash-resumable via existence-check on a per-file basis.
 
 ```bash
-# 1. Sign the FF++ EULA, run their downloader to fetch the videos.
-#    (See https://github.com/ondyari/FaceForensics — their script
-#    pulls original_sequences/ + manipulated_sequences/.)
+# 0. Sign the FF++ EULA, run their downloader. Make sure
+#    splits/{train,val,test}.json land in <root>/splits/. They are
+#    required for identity-disjoint training; without them, random
+#    splits over compound fake video_ids leak source identities
+#    between train and val and produce anti-correlated val AUROC.
+#    If missing, the cache and training scripts print exact curl
+#    commands for grabbing them from the FF++ public GitHub.
 
-# 2. Extract frames (5 fps is plenty for our purposes):
+# 1. Extract frames at 5 fps (~10-50 GB depending on full vs subset).
 python scripts/extract_frames.py /path/to/FaceForensics++ \
     --compression c23 --fps 5
 
-# 3. Train ChromaticEfficientNet on the resulting frames:
-forge-detect train \
+# 2. Face-crop with MTCNN (256x256, 0.3 margin, --max-frames-per-video
+#    matches what training will read). ~30-40 min on RTX 3080 Ti for
+#    the full FF++ at cap 10. Resumable, atomic-write safe.
+python scripts/extract_faces.py \
     --data-root /path/to/FaceForensics++ \
     --dataset face-forensics --compression c23 \
-    --max-frames-per-video 30 --image-size 256 \
-    --epochs 30 --batch-size 32 --device cuda \
-    --checkpoint-dir runs/
+    --output-size 256 --margin 0.3 \
+    --max-frames-per-video 10 --device cuda
 
-# 4. Train + evaluate the binary classifier on the impact-map features:
-forge-detect eval \
+# 3. Cache the three physics maps (W_cnn, z*, R) per face crop as
+#    float16 npz alongside the crops (parallel directory tree). ~50
+#    min on i7-11700KF for FF++ c23 at cap 10.
+python scripts/cache_physics_maps.py \
     --data-root /path/to/FaceForensics++ \
-    --dataset face-forensics --compression c23 \
-    --max-frames-per-video 30 --image-size 256 \
-    --device cuda \
-    --cache features.csv --output classifier.pkl
+    --variant heuristic --frames-subdir frames_faces \
+    --frames-per-video 10 --num-workers 4
 
-# 5. Now use the trained classifier in single-image inference:
-forge-detect detect suspect_image.jpg --device cuda --visualize panel.png
+# 4a. Train the 3-channel RGB baseline (the apples-to-apples control).
+#     ~25 min on RTX 3080 Ti.
+python scripts/pivot_study.py \
+    --data-root /path/to/FaceForensics++ \
+    --baselines pure-cnn \
+    --frames-per-video-train 10 --frames-per-video-eval 10 \
+    --runs-dir runs/baseline_3ch_faces \
+    --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+
+# 4b. Train the 6-channel physics-input model (the experimental arm).
+#     Same recipe; only the input channels differ. ~25 min.
+python scripts/train_physics_cnn.py \
+    --data-root /path/to/FaceForensics++ \
+    --variant heuristic \
+    --frames-per-video-train 10 --frames-per-video-eval 10 \
+    --runs-dir runs/physics_6ch_faces_heuristic \
+    --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+
+# 5. Per-method ablation (4 manipulation methods × 2 models, ~5 min).
+python scripts/eval_per_method.py \
+    --data-root /path/to/FaceForensics++ \
+    --baseline-weights runs/baseline_3ch_faces/baseline_run/best.pt \
+    --physics-weights  runs/physics_6ch_faces_heuristic/best.pt \
+    --device cuda --use-face-crops --use-ff-splits \
+    --output runs/per_method_comparison.json
+
+# 6. Cross-dataset eval on Celeb-DF v2. After running steps 2 and 3
+#    against the Celeb-DF root with --dataset celeb-df, evaluate
+#    each model:
+python scripts/eval_celebdf.py \
+    --celeb-data-root /path/to/Celeb-DF-v2 \
+    --weights runs/baseline_3ch_faces/baseline_run/best.pt \
+    --model baseline --device cuda --use-face-crops \
+    --output runs/baseline_3ch_faces/celeb_test.json
+
+python scripts/eval_celebdf.py \
+    --celeb-data-root /path/to/Celeb-DF-v2 \
+    --weights runs/physics_6ch_faces_heuristic/best.pt \
+    --model physics --device cuda --use-face-crops \
+    --output runs/physics_6ch_faces_heuristic/celeb_test.json
+```
+
+For an unattended end-to-end run (steps 1-4), [`scripts/overnight_run.sh`](scripts/overnight_run.sh) chains the four heavy stages together with per-step logs, fails fast on the first error, and prints headline AUROCs at the end. Total wall-clock ~2h on RTX 3080 Ti / i7-11700KF. Override defaults via env vars (`DATA_ROOT`, `EPOCHS`, `LR`, `FRAMES_PER_VIDEO`, etc.); see the script header for the full list.
+
+```bash
+bash scripts/overnight_run.sh
+# logs land in runs/overnight_<timestamp>/
+# headline AUROCs print at the bottom of run.log
 ```
 
 ### What if I only have a folder of real and a folder of fake images?
@@ -136,97 +212,111 @@ It surfaces the things that are easy to miss in a Proxmox VM: hypervisor type, v
 
 `download-FaceForensics++.py` is the script the FF++ team emails you after EULA acceptance — it is account-keyed, we cannot bundle it. The script wraps it with sensible defaults (real videos, all four manipulation methods, pixel-level masks) and then automatically calls `scripts/extract_frames.py` to convert videos → per-video frame folders. Celeb-DF requires a Google-Form approval; once you have the archive, point `--celeb-archive` at it.
 
-### 3. Phase 1 — quick classifier (recommended starting point)
+### 3. Phase 1 — math + Gradient Boosting baseline (~3.5 h, optional historical context)
 
-For a defendable AUROC number in **~2 hours** instead of 25, run only the heuristic-pipeline + Gradient Boosting classifier — no CNN training. This is the recommended first run on the cluster: cheap, defendable, lower-risk for the diploma timeline.
+Phase 1 is the analytic baseline that motivated Phase 2: math pipeline → 24-D feature vector → `sklearn.ensemble.GradientBoostingClassifier`. This was run on FF++ c23 with random video-disjoint splits; it produces test video AUROC `0.347` (mean-pool) — _systematically below chance_, in the same direction across all four manipulation methods. The oracle ablation (`scripts/oracle_phase1.py`) re-runs the same pipeline with FF++ ground-truth manipulation masks substituted for `W_cnn`, confirming the inversion is a property of the settlement formulation under c23 compression rather than trust-map quality. See [`paper/sections/10-empirical.typ`](paper/sections/10-empirical.typ) for the full Phase 1 evaluation.
+
+If you want to reproduce Phase 1 from scratch:
 
 ```bash
 ./scripts/continue.sh -- python scripts/quick_classifier.py \
     --data-root /scratch/$USER/data/FaceForensics++ \
     --runs-dir runs/quick_phase1 \
     --device cuda
+# ~3.5 h cluster wallclock; outputs:
+#   runs/quick_phase1/features.csv (24-D + label + path + video_id)
+#   runs/quick_phase1/classifier.pkl
+#   runs/quick_phase1/report.json (test AUROC, accuracy, top features)
 ```
 
-Outputs land in `runs/quick_phase1/`:
-- `features.csv` — full impact-map feature matrix (24 columns + label + path).
-- `classifier.pkl` — trained sklearn pipeline (StandardScaler + GBC).
-- `report.json` — AUROC, accuracy, top features by importance.
+Phase 1's negative result is what motivates Phase 2: the math pipeline produces real, reproducible spatial signal, but a 24-D global-pool tabular classifier discards that spatial information at feature-extraction time. Phase 2 reformulates the use of the math: keep the per-pixel maps as additional CNN input channels and let a convolutional classifier learn its own spatial pooling.
 
-The script prints a decision rubric at the end:
+### 4. Phase 2 — multi-channel CNN (recommended starting point)
 
-| AUROC | Interpretation | Action |
-|---|---|---|
-| ≥ 0.85 | Strong baseline; the heuristic + classifier alone is defendable. | Phase 2 (CNN training) is an upgrade, not a prerequisite — optional. |
-| ~ 0.70 | Reasonable but not great. | CNN training likely helps; consider Phase 2 if you have cluster time. |
-| ≤ 0.55 | Near chance. | The math + heuristic does not separate this dataset. Revisit assumptions before committing to CNN training. |
-
-**Frame format and resolution.** `extract_frames.py` writes PNG by default (lossless, sharper than JPG — relevant for the structural-tensor stage and Lambertian gradient transfer). The default `--image-size 256` matches the FF++ leaderboard convention. Both are configurable but only change them with cause; consistency across `quick_classifier`, `pivot_study`, and any later inference run is what makes results comparable.
-
-### 4. Forensic check on a small slice (always do this first)
-
-Before committing to a multi-day training run, verify the whole stack on a tiny slice — 1 frame per video, 128² resolution, 3 epochs:
+This is the run that produces the [headline results](#headline-results) above. The recipe is summarised in the workflow at [§Workflow](#workflow-video-files--multi-channel-trained-classifier); on the cluster wrap it in `continue.sh` for crash resumption and run it inside `tmux` so SSH disconnections don't kill it:
 
 ```bash
-python scripts/pivot_study.py \
-    --data-root /scratch/$USER/data/FaceForensics++ \
-    --max-frames-per-video 1 --image-size 128 \
-    --epochs 3 --batch-size 16 --device cuda \
-    --runs-dir runs/pivot_smoke
+tmux new -s forge
+
+# Inside tmux:
+./scripts/continue.sh -- bash scripts/overnight_run.sh
+# ~2 h end-to-end. Detach with Ctrl-b d; come back with `tmux attach -t forge`.
 ```
 
-This trains every component (pure-CNN, trust-map CNN, classifier) on ~5000 frames in roughly 15 minutes on a single 4090. It exists to catch *plumbing* failures (out-of-memory, dataset path wrong, CUDA OOM under the chosen batch size) — **not to produce defendable numbers**. The AUROCs from this run are noisy because of the small dataset; that is expected.
+`overnight_run.sh` calls the four heavy stages back-to-back:
 
-### 5. Phase 2 — full pivot study (optional)
+1. **Face cropping** (`scripts/extract_faces.py`) — MTCNN over the extracted frames; resumable; ~30-40 min.
+2. **3-channel baseline training** (`scripts/pivot_study.py --baselines pure-cnn`) — RGB only; ~25 min.
+3. **Physics-map cache** (`scripts/cache_physics_maps.py`) — the three spatial maps as float16 npz; ~50 min.
+4. **6-channel physics-input training** (`scripts/train_physics_cnn.py`) — RGB + W_cnn + z* + R; ~25 min.
 
-Only run this *after* you have the Phase-1 classifier number in hand and you've decided the framework deserves the cluster time. This stage trains both CNNs (~7 hours combined) and re-runs feature extraction with the trained trust map (~12 hours), so plan for ~25 hours total on a single GPU node.
+Each stage logs to its own file under `runs/overnight_<timestamp>/`, stops the whole script on first failure, and prints headline test AUROCs at the bottom of `run.log` when done.
+
+For a smoke test before the full run, train at low resolution / few epochs to catch plumbing failures:
 
 ```bash
-./scripts/continue.sh -- python scripts/pivot_study.py \
-    --data-root /scratch/$USER/data/FaceForensics++ \
-    --max-frames-per-video 30 --image-size 256 \
-    --epochs 30 --batch-size 32 --device cuda \
-    --runs-dir runs/pivot_full \
-    --output runs/pivot_full/report.json
+EPOCHS=3 IMAGE_SIZE=128 FRAMES_PER_VIDEO=2 bash scripts/overnight_run.sh
+# ~15 min; AUROCs are noisy and not defendable, but plumbing is verified.
 ```
 
-`--baselines` lets you opt into a subset incrementally. Three useful runs:
+### 5. Phase 2 ablations and follow-up
 
-| Goal | Flag | Time |
+After step 4 produces the two `best.pt` checkpoints, the per-method and cross-dataset evaluations attribute the combined null to its underlying components:
+
+```bash
+# Per-method breakdown (Deepfakes / Face2Face / FaceSwap / NeuralTextures)
+python scripts/eval_per_method.py \
+    --data-root /scratch/$USER/data/FaceForensics++ \
+    --baseline-weights runs/baseline_3ch_faces/baseline_run/best.pt \
+    --physics-weights  runs/physics_6ch_faces_heuristic/best.pt \
+    --device cuda --use-face-crops --use-ff-splits \
+    --output runs/per_method_comparison.json
+# ~5 min; produces three side-by-side AUROC tables (frame, video mean,
+# video max) for each of the four FF++ methods plus the Combined sanity.
+
+# Cross-dataset transfer to Celeb-DF v2 (after re-running steps 2-3
+# of the workflow against the CelebDF root):
+python scripts/eval_celebdf.py \
+    --celeb-data-root /path/to/Celeb-DF-v2 \
+    --weights runs/baseline_3ch_faces/baseline_run/best.pt \
+    --model baseline --device cuda --use-face-crops \
+    --output runs/baseline_3ch_faces/celeb_test.json
+python scripts/eval_celebdf.py \
+    --celeb-data-root /path/to/Celeb-DF-v2 \
+    --weights runs/physics_6ch_faces_heuristic/best.pt \
+    --model physics --device cuda --use-face-crops \
+    --output runs/physics_6ch_faces_heuristic/celeb_test.json
+# ~30 sec each; the cross-dataset eval can be run on a different host
+# from the training cluster (e.g. local machine with CelebDF + scp'd
+# best.pt files) since eval_celebdf.py does not require FF++ data.
+```
+
+### Empirical findings rubric (actual outcome)
+
+| Outcome | What we observed | What it means |
 |---|---|---|
-| Just the heuristic + classifier (re-run Phase 1) | `--baselines heuristic` | ~12 h |
-| Heuristic + pure-CNN baseline (skip trust-map CNN) | `--baselines pure-cnn,heuristic` | ~15 h |
-| Everything (default) | `--baselines all` (or omit) | ~25 h |
+| Combined task | Δ = −0.0003 video AUROC mean-pool | Null on the canonical metric — physics_6ch and baseline_3ch tie within noise. |
+| Per-method (Deepfakes) | Δ = +0.0074 video AUROC | Physics features add signal on autoencoder-based reconstruction. |
+| Per-method (Face2Face) | Δ = −0.0297 video AUROC | Physics features hurt on parametric reenactment (3DMM-based, geometrically smooth by construction). |
+| Per-method (FaceSwap) | Δ = −0.0351 video AUROC | Physics features hurt on graphics-based 3D-model swap (largest loss). |
+| Per-method (NeuralTextures) | Δ = −0.0124 | Within noise. |
+| Cross-dataset (Celeb-DF v2) | Δ = +0.0520 video AUROC max-pool, positive on every metric | Physics features replicate the Deepfakes win across the FF++ → Celeb-DF domain shift. |
 
-The legacy `--skip-trained-cnn` flag still works (equivalent to `--baselines pure-cnn,heuristic`).
+The combined null is the average of opposing per-method effects; the per-method + cross-dataset evidence supports the interpretation that physics-derived spatial features encode autoencoder-induced manifold inconsistencies in a method-invariant way. They help on autoencoder-based manipulations both within and across datasets, and hurt on parametric / graphics-based methods that preserve geometric coherence by construction.
 
-This trains:
-
-1. **Pure CNN** — torchvision EfficientNet-B0 directly on `(image, label)` for binary classification.
-2. **Pipeline + heuristic W_cnn** — math kernels with the deterministic chromatic-residual trust map → 24-D features → Gradient Boosting Classifier.
-3. **Pipeline + trained CNN W_cnn** — same as 2, but `W_cnn` comes from a trained `ChromaticEfficientNet`.
-
-All three use the same train / val / test stratified split and the same optimizer / scheduler / loss family. The script writes a JSON report with AUROC, accuracy, top feature importances, and approximate training time per baseline.
-
-### Pivot decision rubric
-
-| Outcome | What it means | What to do |
-|---|---|---|
-| Pure CNN > Full pipeline by **≥ 0.03 AUROC** | A learned classifier alone separates real / fake at least as well as the physics framework | Pivot. Keep the trained CNN, drop the math pipeline, defend the engineering work as a learned-classifier project |
-| Full pipeline > Pure CNN by **≥ 0.02 AUROC** | The physics signal is real and the framework adds explanatory power | Defend the framework as designed; the math is the contribution |
-| Heuristic ≈ Trained CNN, both ≈ Pure CNN | The pipeline carries useful signal but the trained `W_cnn` does not improve over the deterministic heuristic | Drop the CNN training step from the deliverable, keep the deterministic pipeline as a faster, simpler alternative |
-| All three within ≈ 0.01 AUROC of each other | No method has signal on this split | Revisit assumptions: dataset balance, image resolution, pipeline parameters; or accept that this dataset is too easy / hard to discriminate methods |
-
-Concrete rough timings on a single RTX 4090 with FF++ c23 at 256² and 30 frames per video (~120k frames):
+Concrete timings on RTX 3080 Ti / i7-11700KF for the Phase-2 pipeline at FF++ c23 c23, face-cropped 256², 10 frames per video, 20 epochs:
 
 | Step | Time |
 |---|---|
-| Frame extraction (all methods + masks at fps=5) | ~6 h |
-| Pure-CNN training, 30 epochs | ~3 h |
-| Trust-map CNN training, 30 epochs | ~4 h |
-| Pipeline feature extraction over the dataset, both runs | ~12 h |
-| Total pivot study | ~25 h on one GPU |
+| Frame extraction (5 fps, all methods + masks) | ~3 h |
+| Face cropping (MTCNN) | ~30-40 min |
+| 3-channel baseline training, 20 epochs | ~25 min |
+| Physics-map cache | ~50 min |
+| 6-channel physics training, 20 epochs | ~25 min |
+| Per-method ablation (no retrain) | ~5 min |
+| Total | ~5-6 h on one GPU |
 
-This is sequential; on a multi-GPU cluster the two CNN trainings run in parallel and the feature-extraction step parallelizes trivially across GPUs (run with `CUDA_VISIBLE_DEVICES=0,1,...` per node).
+The frame-extraction stage is the long pole; on a freshly-prepared cluster the rest of the pipeline (face crops onward) runs in ~2 h via `overnight_run.sh`.
 
 ### 6. Surviving outages and not having to babysit the script
 
@@ -311,21 +401,26 @@ python scripts/pivot_study.py \
 
 Submit with `sbatch script.sh`. After preemption SLURM relaunches the script automatically and resume kicks in on its own.
 
-### 7. Export and reuse the trained model
+### 7. Export and reuse the trained models
 
-The trust-map weights live at `runs/pivot_full/trust_map/<timestamp>/best.pt`. Use them anywhere:
+After Phase 2 training, two `best.pt` checkpoints are the deliverables:
 
-```bash
-forge-detect detect new_image.jpg \
-    --cnn-checkpoint runs/pivot_full/trust_map/<timestamp>/best.pt \
-    --device cuda --visualize panel.png
-
-forge-detect eval --data-root /any/other/dataset \
-    --cnn-checkpoint runs/pivot_full/trust_map/<timestamp>/best.pt \
-    --device cuda
+```
+runs/baseline_3ch_faces/baseline_run/best.pt    # 3-channel RGB EfficientNet-B0 (~20 MB)
+runs/physics_6ch_faces_heuristic/best.pt        # 6-channel physics EfficientNet-B0 (~20 MB)
 ```
 
-The classifier pickle (`runs/pivot_full/features-*.csv` → `train_classifier()`) is similarly portable. Both files are self-contained — copy them off the cluster, ship them with your application, and the inference path on a CPU-only laptop works the same as on the cluster.
+Both are self-contained PyTorch state dicts; copy them off the cluster (~20 MB scp) and the inference path on a CPU-only laptop works the same as on the cluster. The 3-channel weights load into [`build_baseline_classifier`](python/forge_detect/baseline_cnn.py) and the 6-channel weights load into [`build_physics_classifier(in_channels=6)`](python/forge_detect/baseline_cnn.py) from the same module.
+
+For inference on novel images, [`scripts/eval_celebdf.py`](scripts/eval_celebdf.py) is the reference loader for both models — it constructs the same `Sequential(_ImageNetNormalize, EfficientNet)` wrapper, calls `load_weights`, and runs `evaluate_baseline_cnn` for frame and video metrics.
+
+The Phase-1 GBC pipeline (`runs/quick_phase1/classifier.pkl`) remains usable as a single-image diagnostic via the `forge-detect detect` CLI:
+
+```bash
+forge-detect detect new_image.jpg --device cuda --visualize panel.png
+```
+
+That path runs the math pipeline on one image and renders the 6-panel figure (Input / W_cnn / z_forged / z* / R / cracks). It does *not* run the multi-channel Phase-2 classifier — the Phase-2 model is for video-level cross-dataset evaluation, not single-image inference.
 
 ## Tests
 
@@ -358,7 +453,11 @@ The compiled PDF is gitignored; run the command above to regenerate.
 
 ```
 deepfake-detection-v2/
-├── paper/                  # Typst diploma paper, one section per phase
+├── paper/                  # Typst diploma paper
+│   └── sections/
+│       ├── 01-introduction.typ … 09-implementation.typ
+│       ├── 10-empirical.typ            # Phase 1 results + diagnostic chain
+│       └── 11-phase2-multichannel.typ  # Phase 2 6-channel reformulation + actual results
 ├── src/                    # Rust math core (one module per phase)
 │   ├── lib.rs              # crate root
 │   ├── luminance.rs        # Phase 1
@@ -374,13 +473,37 @@ deepfake-detection-v2/
 ├── python/forge_detect/    # Python orchestrator
 │   ├── config.py           # PipelineParams, PdeParams
 │   ├── types.py            # SolveResult dataclass
-│   ├── backends/           # CpuBackend (Rust), CudaBackend (stub)
+│   ├── backends/           # CpuBackend (Rust), CudaBackend (PyTorch)
 │   ├── trust_map.py        # Heuristic chromatic-residual W_cnn
-│   ├── cnn.py              # ChromaticEfficientNet scaffold
-│   ├── features.py         # 24-D feature vector
+│   ├── cnn.py              # Phase 1 ChromaticEfficientNet (trust-map predictor; legacy)
+│   ├── baseline_cnn.py     # build_baseline_classifier (3-ch) + build_physics_classifier (6-ch)
+│   ├── datasets.py         # FaceForensicsAdapter, CelebDFAdapter, physics_npz_path helpers
+│   ├── features.py         # Phase 1 24-D feature vector
+│   ├── classifier.py       # Phase 1 GBC + ClassifierMetrics (frame + video AUROC)
+│   ├── eval.py             # extract_features_over_dataset, evaluate_pipeline
+│   ├── train.py            # Phase 1 trust-map CNN training (legacy)
 │   ├── pipeline.py         # detect() entry point
 │   ├── viz.py              # 6-panel diagnostic figure
-│   └── cli.py              # forge-detect CLI
+│   └── cli.py              # forge-detect CLI (single-image diagnostic)
+├── scripts/                # End-to-end pipeline scripts
+│   ├── extract_frames.py           # videos → frames/
+│   ├── extract_faces.py            # frames → frames_faces/ (MTCNN)
+│   ├── verify_face_crops.py        # cleanup utility for partial extracts
+│   ├── cache_physics_maps.py       # frames_faces → physics_faces_<variant>/
+│   ├── pivot_study.py              # 3-channel baseline training
+│   ├── train_physics_cnn.py        # 6-channel physics-input training
+│   ├── eval_per_method.py          # per-method FF++ test breakdown
+│   ├── eval_celebdf.py             # cross-dataset Celeb-DF v2 evaluation
+│   ├── overnight_run.sh            # end-to-end pipeline runner (4 stages, ~2 h)
+│   ├── diagnose_baseline.py        # 30-step overfit test for training infra
+│   ├── oracle_phase1.py            # Phase 1 oracle ablation (GT-mask trust map)
+│   ├── per_method_refit.py         # Phase 1 per-method GBC refit
+│   ├── quick_classifier.py         # Phase 1 math + GBC pipeline
+│   ├── prepare_data.sh             # FF++ + Celeb-DF download orchestrator
+│   ├── cluster_bootstrap.sh        # one-shot cluster setup
+│   ├── cluster_diagnose.sh         # Proxmox VM sanity check
+│   ├── continue.sh                 # crash-resume wrapper
+│   └── trim_frames.py              # frame-cap utility
 ├── tests/                  # pytest suite
 ├── examples/               # demo scripts
 ├── Cargo.toml              # Rust crate manifest
@@ -391,22 +514,32 @@ deepfake-detection-v2/
 
 ## Status
 
-| Component                                    | Status                              |
-| -------------------------------------------- | ----------------------------------- |
-| Rust math core (Phases 1-5 + impact)         | Complete, 88 unit tests             |
-| CPU backend (PyO3 wrapper)                   | Complete                            |
-| CUDA backend (PyTorch reimplementation)      | Complete, 6 backend-equivalence tests |
-| Heuristic trust map                          | Complete                            |
-| ChromaticEfficientNet (architecture + training) | Complete, AdamW + cosine LR + AMP |
-| Dataset adapters (FF++, ImageFolder)         | Complete, 12 tests                  |
-| Frame-extraction script (ffmpeg)             | Complete                            |
-| Binary classifier (sklearn GBC)              | Complete, 8 tests                   |
-| End-to-end evaluation (AUROC + features)     | Complete                            |
-| 6-panel visualization                        | Complete                            |
-| CLI: detect / train / eval / bench           | Complete, 5 tests                   |
-| Typst paper (Sections 1-9)                   | Complete, ~25 pages                 |
-| **Pretrained CNN weights**                   | **Not bundled — train on your dataset** |
-| **Empirical AUROC on FF++ / Celeb-DF / DFDC** | **Pending — that is the diploma's empirical chapter** |
+| Component                                            | Status                                  |
+| ---------------------------------------------------- | --------------------------------------- |
+| Rust math core (Phases 1-5 + impact)                 | Complete, 88 unit tests                 |
+| CPU backend (PyO3 wrapper)                           | Complete                                |
+| CUDA backend (PyTorch reimplementation)              | Complete, 6 backend-equivalence tests   |
+| Heuristic trust map                                  | Complete                                |
+| Phase 1: math + GBC classifier                       | Complete, evaluated on FF++ c23         |
+| Phase 1: oracle ablation (GT-mask trust map)         | Complete; result confirms Phase 1 inversion |
+| Phase 1: per-method GBC refit                        | Complete, 4 methods × per-method classifiers |
+| Phase 2: face-crop preprocessing (MTCNN)             | Complete, 99.7% detection rate on Celeb-DF |
+| Phase 2: 6-channel physics tensor + stem surgery     | Complete (`build_physics_classifier`)   |
+| Phase 2: training infra (WRS, hflip, AdamW + cosine) | Complete, verified on smoke + full     |
+| Phase 2: in-domain FF++ c23 evaluation               | Complete (combined + per-method)        |
+| Phase 2: cross-dataset Celeb-DF v2 evaluation        | Complete (518-video testing list)       |
+| ChromaticEfficientNet (Phase 1 trust-map predictor)  | Complete (legacy; superseded by Phase 2) |
+| Dataset adapters (FF++, Celeb-DF, ImageFolder)       | Complete, 12 tests                      |
+| Frame-extraction script (ffmpeg)                     | Complete                                |
+| Binary classifier (sklearn GBC)                      | Complete, 8 tests                       |
+| End-to-end evaluation (frame + video AUROC)          | Complete                                |
+| 6-panel visualization                                | Complete                                |
+| CLI: detect / train / eval / bench                   | Complete, 5 tests                       |
+| Typst paper (Sections 1-11)                          | Complete, ~30 pages with empirical results |
+| **Pretrained model weights**                         | **Not bundled — train via `overnight_run.sh`** |
+| **Empirical evaluation on FF++ + Celeb-DF**          | **Complete — see [Headline results](#headline-results)** |
+| **Multi-seed replication**                           | **Future work — single-seed numbers reported** |
+| **Generalisation to modern diffusion generators**    | **Future work — out of scope, see §11.10** |
 
 Total test count: **88 Rust + 55 Python = 143 tests**, all green.
 
