@@ -152,12 +152,24 @@ if [ "$SKIP_SYNC" != "1" ]; then
     run_step "00-uv-sync" uv sync
 fi
 
-# ── Step 1: face extraction ──────────────────────────────────────────────────
+# ── Step 1a: clean any corrupt face crops from previous runs ────────────────
 #
-# Runs FIRST so any failure (MTCNN/torch import, GPU OOM, missing
-# frames/ source) aborts before we touch the existing physics caches.
+# Self-heal: an interrupted earlier extract_faces.py run could have left
+# half-written PNGs that the existence-check resume would otherwise
+# trust. Verify first; extract_faces.py in step 1b then refills any
+# files this step deleted. Cheap (~1-2 min on 50k crops).
 
-run_step "01-extract-faces" \
+run_step "01a-verify-face-crops" \
+    uv run python scripts/verify_face_crops.py \
+        --data-root "$DATA_ROOT"
+
+# ── Step 1b: face extraction ─────────────────────────────────────────────────
+#
+# Runs first among the heavy stages so any failure (MTCNN/torch import,
+# GPU OOM, missing frames/ source) aborts before we touch the existing
+# physics caches.
+
+run_step "01b-extract-faces" \
     uv run python scripts/extract_faces.py \
         --data-root "$DATA_ROOT" \
         --dataset face-forensics --compression c23 \

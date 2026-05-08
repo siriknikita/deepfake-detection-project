@@ -195,7 +195,15 @@ def _process_one_dir(
 
                 cropped = _crop_and_resize(image, box, args.output_size)
                 out_video_dir.mkdir(parents=True, exist_ok=True)
-                cropped.save(out_path, format="PNG")
+                # Atomic write: PIL can leave a half-decoded file on disk if
+                # the process is interrupted mid-save (which then fails the
+                # next dataset load with UnidentifiedImageError instead of a
+                # missing-file error). Save to <name>.tmp and rename — even
+                # an interrupted run leaves only a stray .tmp file, never a
+                # corrupt .png that the resume check would trust.
+                tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
+                cropped.save(tmp_path, format="PNG")
+                tmp_path.replace(out_path)
             except Exception as e:
                 n_failed += 1
                 print(f"  ERROR on {frame_path}: {type(e).__name__}: {e}")
