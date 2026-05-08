@@ -532,35 +532,121 @@ into memorisation.
 
 == Limitations and follow-up experiments
 
-The result reported above is one full run-to-completion comparison
-under one set of hyperparameters; it is enough to answer the binary
-"does the math help" question but not to claim the answer is
-robust across recipes. Three concrete follow-up experiments are
-indicated:
+The results reported above are single-seed run-to-completion
+comparisons under one set of hyperparameters; they are enough to
+answer the binary "does the math help" question and to characterise
+*where* it helps (autoencoder-based methods, in-domain Deepfakes
+and cross-dataset Celeb-DF), but not to claim the magnitude of the
+effect is robust across recipes. Three concrete experimental
+follow-ups would tighten the empirical conclusions:
 
 + *Frames-per-video sweep.* Re-cache face crops and physics maps
   at $30$ training frames per video (the standard academic recipe)
   and rerun both arms. This $3 times$ training-data scale-up
-  typically lifts FF++ AUROC by $0.05$–$0.10$ and may either
-  widen or close the per-video gap between the two arms.
+  typically lifts FF++ AUROC by $0.05$–$0.10$ and may widen or
+  close the per-video gap between the two arms.
 + *Augmentation ablation.* Add ColorJitter, random resized crop,
   and JPEG-quality augmentation to both arms uniformly. This is
   the standard FF++ regularisation kit; it usually closes the
   train/val gap and raises validation AUROC by $0.03$–$0.05$.
++ *Multi-seed training.* All numbers in this chapter are
+  single-seed; reporting mean $plus.minus$ std over three seeds
+  (0, 1, 2) is required-grade for a peer-reviewed submission. The
+  per-method gap on Deepfakes ($+$0.0074) is comparable to typical
+  single-seed variance; without multi-seed bracketing we cannot
+  rule out that the in-domain Deepfakes lift specifically is noise.
+  The cross-dataset $+$0.0520 max-pool delta is sufficiently
+  larger than typical seed variance that this caveat applies less
+  strongly there.
 + *gtmask variant.* The originally-planned `physics_6ch_gtmask`
   experiment, deferred due to disk constraints, would establish
   the upper bound under perfect-localisation supervision. Even if
   the gtmask delta over heuristic is small, it brackets the
   trust-map-quality contribution of the physics pipeline cleanly.
 
-A fourth, more research-oriented direction is *cross-dataset
-transfer to Celeb-DF v2*. The Phase-1 cross-dataset experiment
-showed exact-chance ($0.500$) FF++-to-Celeb-DF transfer with the
-GBC. If a 6-channel CNN trained on FF++ achieves above-chance
-Celeb-DF transfer, that would be a strong piece of evidence that
-the physics maps encode generalisable structure beyond what RGB
-preserves through codec re-compression. We did not run this
-experiment owing to time constraints and lack of CelebDF data on
-the FF++ training cluster.
+== Scope of the contribution
+
+Two additional limitations, more substantial than the experimental
+follow-ups above, set the scope within which the findings of this
+chapter should be read.
+
+*Single physical principle.* The six-channel physics input encodes
+exactly one physical principle — Lambertian-reflectance-grounded
+manifold settlement (Sections 4–6) — and one chromatic prior — local
+chromatic deviation in the trust map (Section 3.4). The per-method
+ablation of Section 11.7 shows clearly where this single principle
+adds signal (autoencoder-induced manifold inconsistency in Deepfakes)
+and where it does not (parametric methods that preserve geometric
+coherence by construction). This naturally suggests that *additional*
+physics-derived spatial maps could extend the multi-channel approach
+to manipulation types the manifold-settlement signal does not capture:
+
+#set list(marker: ([•]))
+- *Frequency-domain residuals* — DCT or wavelet coefficients of the
+  input; GAN-generated and diffusion-generated images carry
+  characteristic spectral signatures (Frank et al., ICML 2020) that are
+  invisible in pixel space and orthogonal to the manifold-residual
+  $R$ this work uses.
+- *Specular and shadow consistency* — synthesised faces (especially
+  face swaps) often carry illumination signatures from a different
+  scene baked into the swapped region; consistency of specular
+  highlights and cast shadows with the surrounding context is a
+  long-standing forensic cue.
+- *Subpixel chromatic aberration* — real cameras introduce
+  wavelength-dependent lens distortion at edges; rendered or
+  synthesised content typically does not. The aberration map is a
+  single-channel high-frequency residual that adds cheaply.
+- *Sub-surface scattering and skin colour gradients* — real skin
+  exhibits specific wavelength-dependent gradients caused by light
+  penetrating tissue; rendered skin is often missing these cues.
+- *Temporal consistency* — extending the framework beyond per-frame
+  classification opens blink-rate, lip-sync, and frame-to-frame
+  texture-stability cues, none of which the current work uses.
+
+Each of these is a candidate spatial map that the same multi-channel
+CNN architecture introduced in Section 11.2 could consume as
+additional input channels. *The methodological contribution of this
+chapter is the multi-channel physics-tensor pattern itself —
+preprocess via physics-grounded spatial maps, stack with RGB as CNN
+input channels, evaluate per-method and cross-dataset attribution —
+rather than the specific three-map composition of $W_"cnn"$, $z^*$
+and $R$.* Future work extending the channel set is a direct
+implementation effort within the same framework.
+
+*Generalisation to modern diffusion-based generative models.* The
+two synthesis pipelines studied here (FF++'s four manipulation methods,
+released 2019, and Celeb-DF v2, released 2020) are both autoencoder-
+or graphics-based. Modern image and video generative models — Stable
+Diffusion 3 / SDXL (Podell et al., 2023), FLUX, Imagen, DALL-E 3 — are
+diffusion-based, multi-stage (latent diffusion plus refinement plus
+optional super-resolution), and produce outputs of dramatically
+higher per-pixel fidelity than the FF++ Deepfakes baseline. The
+manifold inconsistencies the Hyperplane-Forge framework is
+constructed to detect were observable in 2018-era autoencoder
+synthesis precisely because the synthesis quality was limited. Whether
+the same signal is present in modern diffusion outputs is an open
+empirical question that this work does not address.
+
+We therefore deliberately scope the empirical claim to *autoencoder-
+style synthesis at the FF++ / Celeb-DF v2 era*. Generalising the
+framework to detect outputs from contemporary generative models will
+likely require *additional* physics-derived spatial maps (the
+modalities listed above) and *new* maps tailored to diffusion-specific
+artefacts (latent-space residuals, multi-step refinement signatures,
+super-resolution boundary cues) that future work will need to
+identify and integrate. The methodology developed in this work — per-
+frame physics preprocessing, multi-channel CNN training, per-method
+and cross-dataset attribution — is independent of which specific maps
+are stacked as input channels, and we expect it to remain the right
+methodological frame for that future work.
+
+In short, the contribution of this thesis is *not* a deployable
+deepfake detector — it is a methodology for incorporating physics-
+derived spatial preprocessing into a learned classifier and a
+characterisation of when and why one specific instantiation of that
+methodology adds signal. The empirical question of how far the
+multi-channel pattern extends to richer physics, larger models, and
+modern generative pipelines is left to future work that builds on
+this foundation.
 
 #pagebreak()
