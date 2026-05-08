@@ -38,8 +38,8 @@ Where to get the data:
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -72,6 +72,15 @@ FF_COMPRESSIONS: tuple[str, ...] = ("raw", "c23", "c40")
 PHYSICS_VARIANTS: tuple[str, ...] = ("heuristic", "gtmask")
 PHYSICS_NPZ_KEYS: tuple[str, ...] = ("wcnn", "z_star", "residual")
 _PHYSICS_EPS = 1.0e-6
+
+# Frequency-map cache variants (Phase 3). Keep in sync with
+# scripts/cache_frequency_maps.py.
+FREQUENCY_VARIANTS: tuple[str, ...] = ("default",)
+FREQUENCY_NPZ_KEYS: tuple[str, ...] = (
+    "dct_block_energy",
+    "dct_high_ratio",
+    "fft_radial_logmag",
+)
 
 
 def physics_npz_path(image_path: Path, variant: str) -> Path:
@@ -110,6 +119,233 @@ def physics_npz_path(image_path: Path, variant: str) -> Path:
         / image_path.parent.name
         / (image_path.stem + ".npz")
     )
+
+
+def frequency_npz_path(image_path: Path, variant: str) -> Path:
+    """Locate the frequency npz for an image, mirroring :func:`physics_npz_path`.
+
+    - ``frames/X/0001.png`` -> ``frequency_<variant>/X/0001.npz``
+    - ``frames_faces/X/0001.png`` -> ``frequency_faces_<variant>/X/0001.npz``
+
+    The caching script ``scripts/cache_frequency_maps.py`` writes here; the
+    adapters read from here through :class:`ChannelSource`.
+    """
+    if variant not in FREQUENCY_VARIANTS:
+        msg = f"frequency variant must be one of {FREQUENCY_VARIANTS}, got {variant!r}"
+        raise ValueError(msg)
+    frames_dir = image_path.parent.parent
+    frames_dir_name = frames_dir.name
+    if frames_dir_name == "frames":
+        cache_dir_name = f"frequency_{variant}"
+    elif frames_dir_name.startswith("frames_"):
+        suffix = frames_dir_name[len("frames_") :]
+        cache_dir_name = f"frequency_{suffix}_{variant}"
+    else:
+        msg = (
+            f"image path {image_path} has parent directory name "
+            f"{frames_dir_name!r}, expected 'frames' or 'frames_<...>' — "
+            "cannot derive the frequency-map cache location"
+        )
+        raise ValueError(msg)
+    return (
+        frames_dir.parent
+        / cache_dir_name
+        / image_path.parent.name
+        / (image_path.stem + ".npz")
+    )
+
+
+@dataclass(frozen=True)
+class ChannelSource:
+    """Pluggable extra-channel source loaded from an on-disk npz cache.
+
+    Each source contributes ``n_channels`` to the input tensor. Callers
+    pre-build the cache with the matching ``scripts/cache_*.py`` script;
+    the adapter reads + normalises at ``__getitem__`` time and concats the
+    result to the RGB image.
+
+    The contract is intentionally small: a name (for diagnostics + the
+    spec parser), a channel count (for early-fail validation), a
+    ``cache_path_fn`` mapping image path to npz path, the npz keys to
+    read, and a ``normalize`` callable producing a ``(C, H, W)`` float32
+    array from the loaded raw arrays.
+    """
+
+    name: str
+    n_channels: int
+    cache_path_fn: Callable[[Path], Path]
+    npz_keys: tuple[str, ...]
+    normalize: Callable[[dict[str, np.ndarray]], np.ndarray]
+    extra: dict[str, str] = field(default_factory=dict)
+
+
+def _normalize_physics(arrays: dict[str, np.ndarray]) -> np.ndarray:
+    """Per-image normalisation for the Phase-2 physics maps.
+
+    Matches the original Phase-2 normalisation exactly: trust map clipped
+    to ``[0, 1]``, ``z*`` min-max scaled, residual squashed through
+    ``tanh(R/std(R))`` and shifted to ``[0, 1]``. The scale is per-image
+    on purpose — see the §11.1 paper rationale for why absolute scale is
+    discarded.
+    """
+    wcnn = np.clip(arrays["wcnn"], 0.0, 1.0)
+    z_star = arrays["z_star"]
+    z_min, z_max = float(z_star.min()), float(z_star.max())
+    z_norm = (z_star - z_min) / max(z_max - z_min, _PHYSICS_EPS)
+    residual = arrays["residual"]
+    r_std = max(float(residual.std()), _PHYSICS_EPS)
+    r_norm = (np.tanh(residual / r_std) + 1.0) * 0.5
+    return np.stack([wcnn, z_norm, r_norm], axis=0).astype(np.float32, copy=False)
+
+
+def _normalize_frequency(arrays: dict[str, np.ndarray]) -> np.ndarray:
+    """Frequency maps are already in ``[0, 1]`` from :mod:`forge_detect.frequency_map`.
+
+    The cache writes float16 — clip back to ``[0, 1]`` to absorb any
+    quantisation drift outside the range.
+    """
+    dct_e = np.clip(arrays["dct_block_energy"], 0.0, 1.0)
+    dct_r = np.clip(arrays["dct_high_ratio"], 0.0, 1.0)
+    fft_m = np.clip(arrays["fft_radial_logmag"], 0.0, 1.0)
+    return np.stack([dct_e, dct_r, fft_m], axis=0).astype(np.float32, copy=False)
+
+
+def physics_channel_source(variant: str = "heuristic") -> ChannelSource:
+    """Build a :class:`ChannelSource` for the Phase-2 physics maps."""
+    if variant not in PHYSICS_VARIANTS:
+        msg = f"physics variant must be one of {PHYSICS_VARIANTS}, got {variant!r}"
+        raise ValueError(msg)
+    return ChannelSource(
+        name=f"physics:{variant}",
+        n_channels=3,
+        cache_path_fn=lambda p: physics_npz_path(p, variant),
+        npz_keys=PHYSICS_NPZ_KEYS,
+        normalize=_normalize_physics,
+        extra={"family": "physics", "variant": variant},
+    )
+
+
+def frequency_channel_source(variant: str = "default") -> ChannelSource:
+    """Build a :class:`ChannelSource` for the Phase-3 frequency maps."""
+    if variant not in FREQUENCY_VARIANTS:
+        msg = f"frequency variant must be one of {FREQUENCY_VARIANTS}, got {variant!r}"
+        raise ValueError(msg)
+    return ChannelSource(
+        name=f"frequency:{variant}",
+        n_channels=3,
+        cache_path_fn=lambda p: frequency_npz_path(p, variant),
+        npz_keys=FREQUENCY_NPZ_KEYS,
+        normalize=_normalize_frequency,
+        extra={"family": "frequency", "variant": variant},
+    )
+
+
+def parse_channel_spec(
+    spec: str,
+    *,
+    physics_variant: str = "heuristic",
+    frequency_variant: str = "default",
+) -> list[ChannelSource]:
+    """Parse a ``--channels`` CSV into an ordered list of channel sources.
+
+    Token grammar (case-insensitive, comma-separated)::
+
+        rgb                        — implicit base, no source produced
+        physics                    — physics_channel_source(physics_variant)
+        physics:<v>                — physics_channel_source(<v>)
+        frequency                  — frequency_channel_source(frequency_variant)
+        frequency:<v>              — frequency_channel_source(<v>)
+
+    Empty / whitespace-only tokens are ignored. ``rgb`` is always implicit
+    so callers can write ``"rgb,physics,frequency"`` for a 9-channel build
+    or ``"physics,frequency"`` and get the same result. Each channel
+    family may appear at most once.
+    """
+    sources: list[ChannelSource] = []
+    seen: set[str] = set()
+    for raw in spec.split(","):
+        token = raw.strip().lower()
+        if not token or token == "rgb":
+            continue
+        family, _, variant = token.partition(":")
+        if family in seen:
+            msg = f"channel family {family!r} appears twice in spec {spec!r}"
+            raise ValueError(msg)
+        if family == "physics":
+            sources.append(physics_channel_source(variant or physics_variant))
+        elif family == "frequency":
+            sources.append(frequency_channel_source(variant or frequency_variant))
+        else:
+            msg = (
+                f"unknown channel token {raw!r} in spec {spec!r}. "
+                "Recognised families: rgb, physics, physics:<variant>, "
+                "frequency, frequency:<variant>"
+            )
+            raise ValueError(msg)
+        seen.add(family)
+    return sources
+
+
+def total_channels(sources: Iterable[ChannelSource]) -> int:
+    """3 for RGB plus the sum of per-source channel counts.
+
+    Use as ``in_channels=total_channels(sources)`` when constructing
+    :func:`forge_detect.baseline_cnn.build_physics_classifier`.
+    """
+    return 3 + sum(s.n_channels for s in sources)
+
+
+def load_channels_concat(
+    image_chw: np.ndarray,
+    image_path: Path,
+    sources: Iterable[ChannelSource],
+) -> np.ndarray:
+    """Concat one or more channel-source contributions to an RGB image.
+
+    Returns a ``(3 + sum(s.n_channels), H, W)`` float32 array. Each source
+    in ``sources`` contributes its npz cache normalised through its own
+    ``normalize`` callable. Missing caches raise :class:`FileNotFoundError`
+    with an actionable message; mismatched shapes raise
+    :class:`ValueError`. With ``sources=[]`` the function is a no-op cast
+    to float32.
+    """
+    parts: list[np.ndarray] = [image_chw.astype(np.float32, copy=False)]
+    _, h, w = image_chw.shape
+    for src in sources:
+        npz = src.cache_path_fn(image_path)
+        if not npz.exists():
+            msg = (
+                f"channel cache for source '{src.name}' not found at {npz}. "
+                "Run the matching cache_*.py script first; the script writes "
+                "to this exact path."
+            )
+            raise FileNotFoundError(msg)
+        with np.load(npz) as f:
+            try:
+                arrays = {k: np.asarray(f[k], dtype=np.float32) for k in src.npz_keys}
+            except KeyError as e:
+                msg = (
+                    f"channel cache at {npz} is missing key {e}; "
+                    f"expected keys: {src.npz_keys}"
+                )
+                raise ValueError(msg) from e
+        for key, arr in arrays.items():
+            if arr.shape != (h, w):
+                msg = (
+                    f"source '{src.name}' key {key!r} in {npz} has shape "
+                    f"{arr.shape} but image is ({h}, {w}); rebuild the cache "
+                    "with the same image_size"
+                )
+                raise ValueError(msg)
+        normalized = src.normalize(arrays)
+        if normalized.shape != (src.n_channels, h, w):
+            msg = (
+                f"source '{src.name}' normalize() returned shape "
+                f"{normalized.shape}, expected ({src.n_channels}, {h}, {w})"
+            )
+            raise ValueError(msg)
+        parts.append(normalized.astype(np.float32, copy=False))
+    return np.concatenate(parts, axis=0)
 
 
 def load_physics_maps_concat(
@@ -278,6 +514,7 @@ class FaceForensicsAdapter(Dataset):
         load_physics_maps: bool = False,
         physics_variant: str = "heuristic",
         frames_subdir: str = "frames",
+        channel_sources: Iterable[ChannelSource] | None = None,
     ) -> None:
         """Args (extension):
 
@@ -285,6 +522,7 @@ class FaceForensicsAdapter(Dataset):
             ``(3 RGB + 3 physics)``. Cached physics maps (W_cnn, z*, R) must
             already exist alongside the frames — see
             ``scripts/cache_physics_maps.py``. Missing maps raise loudly.
+            Legacy API; new callers should pass ``channel_sources`` instead.
         physics_variant: ``"heuristic"`` (default) loads the chromatic-residual
             trust-map variant; ``"gtmask"`` loads the GT-mask-derived variant
             for fakes (and falls back to heuristic for reals, which have no
@@ -295,6 +533,14 @@ class FaceForensicsAdapter(Dataset):
             ``"frames_faces"`` to read the face-cropped variant produced by
             ``scripts/extract_faces.py`` — required for any FF++ baseline
             that hopes to match the published EfficientNet-B0 numbers.
+        channel_sources: Iterable of :class:`ChannelSource` for Phase-3+
+            multi-source channel composition (e.g. RGB + physics +
+            frequency = 9 channels). Mutually exclusive with the legacy
+            ``load_physics_maps`` flag — passing both is rejected. The
+            cache for every listed source must already exist; missing
+            caches raise loudly at ``__getitem__``. Use
+            :func:`parse_channel_spec` to build this list from a
+            ``--channels`` CSV.
         """
         self.root = Path(root)
         if compression not in FF_COMPRESSIONS:
@@ -303,11 +549,20 @@ class FaceForensicsAdapter(Dataset):
         if physics_variant not in PHYSICS_VARIANTS:
             msg = f"physics_variant must be one of {PHYSICS_VARIANTS}, got {physics_variant!r}"
             raise ValueError(msg)
+        if channel_sources is not None and load_physics_maps:
+            msg = (
+                "FaceForensicsAdapter: channel_sources and load_physics_maps "
+                "are mutually exclusive — pass one or the other, not both."
+            )
+            raise ValueError(msg)
         self.compression = compression
         self.target_size = target_size
         self.load_physics_maps = load_physics_maps
         self.physics_variant = physics_variant
         self.frames_subdir = frames_subdir
+        self._channel_sources: list[ChannelSource] = (
+            list(channel_sources) if channel_sources is not None else []
+        )
 
         # Resolve the subset filter: if `ff_split` is set, intersect its
         # videos with `subset_video_ids` (when both are given).
@@ -403,7 +658,9 @@ class FaceForensicsAdapter(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int, torch.Tensor | None]:
         rec = self._records[idx]
         arr = load_image_chw(rec.image_path, self.target_size)
-        if self.load_physics_maps:
+        if self._channel_sources:
+            arr = load_channels_concat(arr, rec.image_path, self._channel_sources)
+        elif self.load_physics_maps:
             # Reals have no GT mask, so the gtmask variant has nothing to
             # offer them — they always read from the heuristic cache. Fakes
             # honor the configured variant.
@@ -518,6 +775,7 @@ class CelebDFAdapter(Dataset):
         subset_video_ids: Iterable[str] | None = None,
         load_physics_maps: bool = False,
         frames_subdir: str = "frames",
+        channel_sources: Iterable[ChannelSource] | None = None,
     ) -> None:
         """Args (extension):
 
@@ -525,15 +783,29 @@ class CelebDFAdapter(Dataset):
             physics maps concatenated to RGB. Celeb-DF has no GT manipulation
             masks, so only the ``heuristic`` variant is supported here —
             see :class:`FaceForensicsAdapter` for the gtmask variant.
+            Legacy API; new callers should pass ``channel_sources`` instead.
         frames_subdir: Subdirectory name under each subset (``Celeb-real``,
             ``Celeb-synthesis``, ``YouTube-real``) that holds the frame
             images. Default ``"frames"``; pass ``"frames_faces"`` to read
             face crops produced by ``scripts/extract_faces.py``.
+        channel_sources: Iterable of :class:`ChannelSource` for Phase-3+
+            multi-source channel composition. Mutually exclusive with
+            ``load_physics_maps``. See
+            :class:`FaceForensicsAdapter` for full semantics.
         """
         self.root = Path(root)
+        if channel_sources is not None and load_physics_maps:
+            msg = (
+                "CelebDFAdapter: channel_sources and load_physics_maps are "
+                "mutually exclusive — pass one or the other, not both."
+            )
+            raise ValueError(msg)
         self.target_size = target_size
         self.load_physics_maps = load_physics_maps
         self.frames_subdir = frames_subdir
+        self._channel_sources: list[ChannelSource] = (
+            list(channel_sources) if channel_sources is not None else []
+        )
 
         keep_videos: set[str] | None = None
         if testing_list:
@@ -605,7 +877,9 @@ class CelebDFAdapter(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
         rec = self._records[idx]
         arr = load_image_chw(rec.image_path, self.target_size)
-        if self.load_physics_maps:
+        if self._channel_sources:
+            arr = load_channels_concat(arr, rec.image_path, self._channel_sources)
+        elif self.load_physics_maps:
             arr = load_physics_maps_concat(
                 arr, physics_npz_path(rec.image_path, "heuristic"),
             )
@@ -718,16 +992,25 @@ __all__ = [
     "CELEB_SUBSETS_REAL",
     "FF_COMPRESSIONS",
     "FF_METHODS",
+    "FREQUENCY_NPZ_KEYS",
+    "FREQUENCY_VARIANTS",
     "PHYSICS_NPZ_KEYS",
     "PHYSICS_VARIANTS",
     "CelebDFAdapter",
+    "ChannelSource",
     "FaceForensicsAdapter",
     "ImageFolderDataset",
+    "frequency_channel_source",
+    "frequency_npz_path",
     "load_celeb_testing_list",
+    "load_channels_concat",
     "load_ff_split",
     "load_image_chw",
     "load_physics_maps_concat",
+    "parse_channel_spec",
+    "physics_channel_source",
     "physics_npz_path",
     "split_videos",
     "stratified_split",
+    "total_channels",
 ]

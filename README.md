@@ -1,6 +1,6 @@
 # Hyperplane-Forge
 
-Deepfake detection via _physical-manifold settlement_, then via _multi-channel physics-tensor CNN classification_. The full mathematical specification and empirical evaluation are in [`paper/main.typ`](paper/main.typ); this README is a quickstart for running the code.
+Deepfake detection via _physical-manifold settlement_, then via _multi-channel physics-tensor CNN classification_, and now (Phase 3) via _composable physical principles_ — geometric / chromatic channels and frequency-domain channels stacked into the same multi-channel build. The full mathematical specification and empirical evaluation are in [`paper/main.typ`](paper/main.typ); this README is a quickstart for running the code.
 
 ## What it does
 
@@ -9,6 +9,8 @@ A real face is a sample of a smooth physical surface; a deepfake's synthetic inj
 The math kernels are implemented in **Rust** (PyO3, `ndarray`, `rayon`) for the CPU path and exposed to **Python** through a single-function PyO3 entry point. A **PyTorch CUDA backend** mirrors the same operators on GPU and is verified numerically equivalent to the Rust core by 6 backend-equivalence tests.
 
 The empirical Phase 1 study (heuristic trust map + 24-D features + Gradient Boosting Classifier) found the math pipeline produces _systematically anti-correlated_ ranking on FF++ c23 — test video AUROC `0.347` (mean-pool), confirmed by an oracle ablation with FF++ ground-truth masks. Diagnosing this to the global-pool feature-extraction step rather than the math itself, **Phase 2** reformulates the use of the math: instead of feeding 24 scalar features into a tabular classifier, the per-pixel outputs `W_cnn`, `z*`, `R` are stacked alongside the original RGB image as additional input channels to an EfficientNet-B0 binary classifier. The first conv layer is replaced with a six-input variant whose RGB-channel weights are copied from the ImageNet stem; the three new channels are initialised to the per-output-channel mean of those weights so epoch-zero behaviour matches the standard pretrained baseline.
+
+**Phase 3** generalises the multi-channel pattern. Phase 2's per-method ablation showed the geometric-chromatic channels help on autoencoder-based manipulations (Deepfakes, Celeb-DF) and hurt on parametric / graphics-based ones (Face2Face, FaceSwap), because the latter preserve geometric coherence by construction. Phase 3 adds a second physical principle that targets exactly those failure modes: three frequency-domain spatial maps (block-DCT energy, block high-band ratio, full-image FFT log-magnitude) extracted in `forge_detect.frequency_map`, cached alongside the physics maps, and stacked into a 9-channel input via the `--channels rgb,physics,frequency` flag. The Phase 3 chapter ([`paper/sections/12-phase3-frequency.typ`](paper/sections/12-phase3-frequency.typ)) lays out the per-method-recovery hypothesis; empirical results on FF++ c23 and Celeb-DF v2 are pending compute allocation.
 
 ## Headline results
 
@@ -151,6 +153,57 @@ python scripts/eval_celebdf.py \
     --model physics --device cuda --use-face-crops \
     --output runs/physics_6ch_faces_heuristic/celeb_test.json
 ```
+
+### Phase 3 workflow extension: 9-channel build (RGB + physics + frequency)
+
+The Phase-3 build adds three frequency-domain channels to the Phase-2 input tensor; everything else (face crops, splits, training recipe) is unchanged. The pipeline grows by one cache step (`cache_frequency_maps.py`) and one extra flag on training and eval (`--channels rgb,physics,frequency`).
+
+```bash
+# 3a. Cache the three frequency maps (DCT block energy, DCT high-band
+#     ratio, FFT log-magnitude) per face crop. Pure-NumPy compute,
+#     no GPU required; ~5 ms per 256² face. Resumable, atomic-write safe.
+python scripts/cache_frequency_maps.py \
+    --data-root /path/to/FaceForensics++ \
+    --frames-subdir frames_faces \
+    --image-size 256 --num-workers 4
+
+# 4c. Train the 9-channel physics+frequency model. Same recipe as 4b,
+#     only --channels and --runs-dir differ. ~25 min on RTX 3080 Ti.
+python scripts/train_physics_cnn.py \
+    --data-root /path/to/FaceForensics++ \
+    --channels rgb,physics,frequency \
+    --frames-per-video-train 10 --frames-per-video-eval 10 \
+    --runs-dir runs/physics_9ch_freq_heuristic \
+    --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+
+# 5b. Per-method ablation — the experimental story for Phase 3 lives
+#     in this table (predict +Δ on Face2Face / FaceSwap, ≈0 on
+#     Deepfakes; see paper §12.7).
+python scripts/eval_per_method.py \
+    --data-root /path/to/FaceForensics++ \
+    --baseline-weights runs/baseline_3ch_faces/baseline_run/best.pt \
+    --physics-weights  runs/physics_9ch_freq_heuristic/best.pt \
+    --channels rgb,physics,frequency \
+    --device cuda --use-face-crops --use-ff-splits \
+    --output runs/per_method_phase3.json
+
+# 6b. Cross-dataset Celeb-DF eval. Cache frequency maps for Celeb-DF
+#     first (one-shot), then evaluate the 9-channel model.
+python scripts/cache_frequency_maps.py \
+    --data-root /path/to/Celeb-DF-v2 \
+    --dataset celeb-df --celeb-testing-list \
+    --frames-subdir frames_faces \
+    --image-size 256 --num-workers 4
+
+python scripts/eval_celebdf.py \
+    --celeb-data-root /path/to/Celeb-DF-v2 \
+    --weights runs/physics_9ch_freq_heuristic/best.pt \
+    --model physics --channels rgb,physics,frequency \
+    --device cuda --use-face-crops \
+    --output runs/physics_9ch_freq_heuristic/celeb_test.json
+```
+
+The `--channels` spec is a comma-separated list of channel families. Recognised tokens (case-insensitive): `rgb` (implicit base), `physics` or `physics:<variant>` (Phase 2; variants `heuristic` / `gtmask`), and `frequency` or `frequency:<variant>` (Phase 3; variant `default`). Each family may appear at most once. Future channel sets (specular, chromatic-aberration, sub-surface, temporal — see §11.10) drop into the same `ChannelSource` interface in `python/forge_detect/datasets.py` without requiring further changes to training or eval scripts.
 
 For an unattended end-to-end run (steps 1-4), [`scripts/overnight_run.sh`](scripts/overnight_run.sh) chains the four heavy stages together with per-step logs, fails fast on the first error, and prints headline AUROCs at the end. Total wall-clock ~2h on RTX 3080 Ti / i7-11700KF. Override defaults via env vars (`DATA_ROOT`, `EPOCHS`, `LR`, `FRAMES_PER_VIDEO`, etc.); see the script header for the full list.
 
@@ -457,7 +510,8 @@ deepfake-detection-v2/
 │   └── sections/
 │       ├── 01-introduction.typ … 09-implementation.typ
 │       ├── 10-empirical.typ            # Phase 1 results + diagnostic chain
-│       └── 11-phase2-multichannel.typ  # Phase 2 6-channel reformulation + actual results
+│       ├── 11-phase2-multichannel.typ  # Phase 2 6-channel reformulation + actual results
+│       └── 12-phase3-frequency.typ     # Phase 3 9-channel composition + hypotheses
 ├── src/                    # Rust math core (one module per phase)
 │   ├── lib.rs              # crate root
 │   ├── luminance.rs        # Phase 1
@@ -476,8 +530,9 @@ deepfake-detection-v2/
 │   ├── backends/           # CpuBackend (Rust), CudaBackend (PyTorch)
 │   ├── trust_map.py        # Heuristic chromatic-residual W_cnn
 │   ├── cnn.py              # Phase 1 ChromaticEfficientNet (trust-map predictor; legacy)
-│   ├── baseline_cnn.py     # build_baseline_classifier (3-ch) + build_physics_classifier (6-ch)
-│   ├── datasets.py         # FaceForensicsAdapter, CelebDFAdapter, physics_npz_path helpers
+│   ├── baseline_cnn.py     # build_baseline_classifier (3-ch) + build_physics_classifier (n-ch)
+│   ├── datasets.py         # FaceForensicsAdapter, CelebDFAdapter, ChannelSource API
+│   ├── frequency_map.py    # Phase 3 frequency-domain channel producers
 │   ├── features.py         # Phase 1 24-D feature vector
 │   ├── classifier.py       # Phase 1 GBC + ClassifierMetrics (frame + video AUROC)
 │   ├── eval.py             # extract_features_over_dataset, evaluate_pipeline
@@ -490,8 +545,9 @@ deepfake-detection-v2/
 │   ├── extract_faces.py            # frames → frames_faces/ (MTCNN)
 │   ├── verify_face_crops.py        # cleanup utility for partial extracts
 │   ├── cache_physics_maps.py       # frames_faces → physics_faces_<variant>/
+│   ├── cache_frequency_maps.py     # frames_faces → frequency_faces_<variant>/  (Phase 3)
 │   ├── pivot_study.py              # 3-channel baseline training
-│   ├── train_physics_cnn.py        # 6-channel physics-input training
+│   ├── train_physics_cnn.py        # n-channel physics/frequency training (--channels)
 │   ├── eval_per_method.py          # per-method FF++ test breakdown
 │   ├── eval_celebdf.py             # cross-dataset Celeb-DF v2 evaluation
 │   ├── overnight_run.sh            # end-to-end pipeline runner (4 stages, ~2 h)
@@ -528,6 +584,10 @@ deepfake-detection-v2/
 | Phase 2: training infra (WRS, hflip, AdamW + cosine) | Complete, verified on smoke + full     |
 | Phase 2: in-domain FF++ c23 evaluation               | Complete (combined + per-method)        |
 | Phase 2: cross-dataset Celeb-DF v2 evaluation        | Complete (518-video testing list)       |
+| Phase 3: frequency-domain channel producers          | Complete (`forge_detect.frequency_map`) |
+| Phase 3: composable `ChannelSource` API              | Complete; `--channels` flag in train/eval |
+| Phase 3: frequency-map cache script                  | Complete (`scripts/cache_frequency_maps.py`) |
+| Phase 3: empirical 9-channel evaluation              | **Pending — predictions in §12.7, table skeleton in §12.6** |
 | ChromaticEfficientNet (Phase 1 trust-map predictor)  | Complete (legacy; superseded by Phase 2) |
 | Dataset adapters (FF++, Celeb-DF, ImageFolder)       | Complete, 12 tests                      |
 | Frame-extraction script (ffmpeg)                     | Complete                                |
@@ -541,7 +601,7 @@ deepfake-detection-v2/
 | **Multi-seed replication**                           | **Future work — single-seed numbers reported** |
 | **Generalisation to modern diffusion generators**    | **Future work — out of scope, see §11.10** |
 
-Total test count: **88 Rust + 55 Python = 143 tests**, all green.
+Total test count: **88 Rust + 112 Python = 200 tests**, all green.
 
 ## License
 

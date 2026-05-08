@@ -143,3 +143,4 @@ Lambertian reflectance, structural tensor, Min-Max composition, Rust, PyO3.
 #include "sections/09-implementation.typ"
 #include "sections/10-empirical.typ"
 #include "sections/11-phase2-multichannel.typ"
+#include "sections/12-phase3-frequency.typ"
