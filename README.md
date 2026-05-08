@@ -14,24 +14,28 @@ The empirical Phase 1 study (heuristic trust map + 24-D features + Gradient Boos
 
 ## Headline results
 
-All numbers below come from face-cropped FF++ c23 with the official 720/140/140 video-disjoint split, 10 frames per video, 20 epochs, EfficientNet-B0 with WeightedRandomSampler + horizontal-flip augmentation, lr 2·10⁻⁴, AdamW + cosine annealing, BatchNorm trainable, AMP off. The 3-channel baseline and the 6-channel physics arm differ only in input channels and (incidentally) batch size (32 vs 16, due to GPU-memory contention on the shared cluster at training time).
+All numbers below come from face-cropped FF++ c23 with the official 720/140/140 video-disjoint split, 10 frames per video, 20 epochs, EfficientNet-B0 with WeightedRandomSampler + horizontal-flip augmentation, lr 2·10⁻⁴, AdamW + cosine annealing, BatchNorm trainable, AMP off. Phase 2 (3-channel baseline) used batch size 32; Phase 2 (physics_6ch) and Phase 3 (physics_9ch) both used batch size 16 to fit the shared cluster GPU. Phase 3 numbers come from `last.pt` (the post-cosine-anneal checkpoint at epoch 20); Phase 2 numbers from each run's `best.pt` (matches the §11.5 paper table).
 
-| Test set | Metric | baseline_3ch | physics_6ch | Δ |
-|---|---|---|---|---|
-| **FF++ c23** (combined) | Frame AUROC | 0.7309 | 0.7197 | −0.0112 |
-| **FF++ c23** (combined) | Video AUROC mean-pool | **0.8179** | **0.8176** | **−0.0003** |
-| **FF++ c23** (combined) | Video AUROC max-pool | 0.9130 | **0.9273** | **+0.0143** |
-| **FF++ c23 — Deepfakes** | Video AUROC mean-pool | 0.8713 | **0.8787** | **+0.0074** |
-| **FF++ c23 — Face2Face** | Video AUROC mean-pool | **0.8029** | 0.7731 | −0.0297 |
-| **FF++ c23 — FaceSwap** | Video AUROC mean-pool | **0.8150** | 0.7799 | −0.0351 |
-| **FF++ c23 — NeuralTextures** | Video AUROC mean-pool | **0.6647** | 0.6522 | −0.0124 |
-| **Celeb-DF v2** (cross-dataset) | Frame AUROC | 0.5276 | **0.5382** | **+0.0106** |
-| **Celeb-DF v2** (cross-dataset) | Video AUROC mean-pool | 0.5405 | **0.5458** | **+0.0053** |
-| **Celeb-DF v2** (cross-dataset) | **Video AUROC max-pool** | **0.5022** | **0.5542** | **+0.0520** |
+| Test set | Metric | `baseline_3ch` | `physics_6ch` | `physics_9ch` |
+|---|---|---:|---:|---:|
+| **FF++ c23** (combined) | Frame AUROC | **0.7309** | 0.7197 | 0.7028 |
+| **FF++ c23** (combined) | Video AUROC mean-pool | **0.8179** | 0.8176 | 0.7851 |
+| **FF++ c23** (combined) | Video AUROC max-pool | 0.9130 | **0.9273** | 0.8996 |
+| **FF++ c23 — Deepfakes** | Video AUROC mean-pool | 0.8713 | **0.8787** | 0.8583 |
+| **FF++ c23 — Face2Face** | Video AUROC mean-pool | 0.8029 | 0.7731 | **0.8282** |
+| **FF++ c23 — FaceSwap** | Video AUROC mean-pool | **0.8150** | 0.7799 | 0.8147 |
+| **FF++ c23 — NeuralTextures** | Video AUROC mean-pool | 0.6647 | 0.6522 | **0.6694** |
+| **Celeb-DF v2** (cross-dataset) | Frame AUROC | 0.5276 | 0.5382 | **0.5609** |
+| **Celeb-DF v2** (cross-dataset) | Video AUROC mean-pool | 0.5405 | 0.5458 | **0.6095** |
+| **Celeb-DF v2** (cross-dataset) | Video AUROC max-pool | 0.5022 | 0.5542 | **0.5629** |
 
-The combined FF++ result is null on the canonical metric (Δ = −0.0003), but the per-method breakdown reveals it is the average of opposing effects: physics features add signal on autoencoder-based **Deepfakes** (+0.0074) and reduce it on parametric / graphics-based **Face2Face** (−0.0297) and **FaceSwap** (−0.0351). The cross-dataset transfer to Celeb-DF v2 — itself an autoencoder-based pipeline — replicates the in-domain Deepfakes pattern: physics_6ch beats the baseline on every cross-dataset metric, with max-pool video AUROC +0.0520.
+Bold = per-row best. Counted across the 10 metrics: `physics_9ch` 5, `baseline_3ch` 3 (one tied with 9ch on FaceSwap), `physics_6ch` 2.
 
-The interpretation: physics-derived spatial features encode autoencoder-induced manifold inconsistencies in a method-invariant way. They help on autoencoder-based manipulations both within FF++ and across to Celeb-DF, and they hurt on parametric / graphics-based methods that preserve geometric coherence by construction. See [`paper/sections/11-phase2-multichannel.typ`](paper/sections/11-phase2-multichannel.typ) for the full mechanistic argument and limitations.
+**Phase 2 vs baseline_3ch.** Combined FF++ is null on the canonical metric (Δ = −0.0003 mean-pool video AUROC), but the per-method breakdown shows the null is the average of opposing effects: physics features add signal on autoencoder-based **Deepfakes** (+0.0074) and reduce it on parametric / graphics-based **Face2Face** (−0.0297) and **FaceSwap** (−0.0351). Cross-dataset transfer to Celeb-DF v2 — itself an autoencoder-based pipeline — replicates the in-domain Deepfakes pattern: physics_6ch beats the baseline on every cross-dataset metric (max-pool video AUROC +0.0520). See [`paper/sections/11-phase2-multichannel.typ`](paper/sections/11-phase2-multichannel.typ).
+
+**Phase 3 vs physics_6ch.** Adding three frequency-domain spatial channels (block-DCT energy, block high-band ratio, full-image FFT log-magnitude) recovers the Phase-2 parametric losses — Face2Face Δ = **+0.0551**, FaceSwap Δ = **+0.0348**, NeuralTextures Δ = **+0.0172** — at the cost of a small in-domain regression on Deepfakes (Δ = −0.0204). Critically, this regression does *not* generalise: Phase 3 improves on every Celeb-DF cross-dataset metric, with the **video mean-pool delta of +0.0637 over Phase 2** (an order of magnitude larger than Phase 2's +0.0053 improvement over baseline) moving the metric from chance-grazing (0.5458) into clearly above-chance signal (0.6095). See [`paper/sections/12-phase3-frequency.typ`](paper/sections/12-phase3-frequency.typ).
+
+The interpretation: each successive physics principle generalises better cross-dataset than within the dataset its predecessor was tuned on. The 9-channel build is a more uniformly capable detector across manipulation families and synthesis pipelines (per-method standard deviation collapses from 0.097 in Phase 2 to 0.078 in Phase 3), at the cost of less peak performance on the single FF++ method on which the geometric channels were already strongest. **Phase 3 is the strongest cross-dataset model the project has produced.**
 
 ## Requirements
 
