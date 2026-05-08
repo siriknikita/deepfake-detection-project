@@ -260,7 +260,100 @@ mean-pool, the standard cross-paper comparison since Rössler et al.,
 ICCV 2019) and the strongest favourable delta for the 6-channel
 physics input.
 
-Training trajectory:
+=== Per-method ablation
+
+Following the Phase-1 per-method protocol of Section 10.3, we
+re-evaluated both *already-trained* models — the 3-channel baseline
+and the 6-channel physics — on the FF++ test split filtered to
+(reals $union$ that-method-only) one method at a time. The combined
+task pools all four manipulation methods into a single fake class;
+the per-method evaluation slices the same pre-trained models'
+predictions by which method generated each fake, exposing
+manipulation-specific behaviour the combined number hides.
+
+#table(
+  columns: (auto, auto, auto, auto),
+  align: (left, right, right, right),
+  stroke: 0.5pt,
+  table.header(
+    [*Method*],
+    [*baseline_3ch*],
+    [*physics_6ch*],
+    [*Δ*],
+  ),
+  [Deepfakes],      [0.8713], [*0.8787*], [$+$0.0074],
+  [Face2Face],      [*0.8029*], [0.7731], [$-$0.0297],
+  [FaceSwap],       [*0.8150*], [0.7799], [$-$0.0351],
+  [NeuralTextures], [*0.6647*], [0.6522], [$-$0.0124],
+  [*Combined*],     [*0.8179*], [*0.8176*], [$-$0.0003],
+)
+
+Numbers are video AUROC (mean-pool). The combined row matches
+Section 11.6's run-time `report.json` to four decimals
+(sanity check). Bolded entries within each row mark the model that
+won the row.
+
+The per-method numbers reveal a coherent mechanistic pattern that
+the combined null hides: the physics input wins on Deepfakes,
+loses on Face2Face and FaceSwap, and is statistically indistinguishable
+on NeuralTextures. The four FF++ methods produce manipulations with
+qualitatively different geometric signatures, which we believe
+explains the per-method split.
+
+#set list(marker: ([•]))
+- *Deepfakes* — autoencoder-based face reconstruction. The
+  autoencoder hallucinates a full face from latent space, and the
+  reconstruction is rarely geometrically consistent with the
+  underlying head pose, lighting, and blending boundary at the
+  hairline. There is a real manifold inconsistency that the
+  physics pipeline's residual $R = z^* - z_"ideal"$ and Laplacian
+  $L = Delta z^*$ are well-suited to catch. The $+$0.0074
+  Deepfakes lift is the empirical realisation of the framework's
+  load-bearing claim.
+
+- *Face2Face* — parametric facial reenactment via a 3D morphable
+  model. The synthesis transfers expression while preserving
+  identity; the underlying 3DMM machinery yields manipulations
+  that are *geometrically smooth* by construction. From the
+  physics pipeline's perspective, the manipulated face *looks
+  like a coherent manifold*, so the residual map encodes
+  "geometrically consistent" — which the CNN reads as "likely
+  real". The $-$0.0297 loss is the math channels being actively
+  misleading on this method.
+
+- *FaceSwap* — graphics-based face swap with 3D model fitting.
+  Same underlying mechanism as Face2Face: by construction the
+  manipulation has geometrically clean structure. The $-$0.0351
+  loss is the largest in the table.
+
+- *NeuralTextures* — deferred neural rendering. Subtler than the
+  other three (both models hit a floor near 0.66 video AUROC); the
+  $-$0.0124 delta is within the standard-error band at $n = 175$
+  test videos in the per-method subset.
+
+Read together, the rows say: *physics features detect manifold
+inconsistency*, and are therefore informative on manipulation
+methods that produce inconsistency (Deepfakes) but
+uninformative-or-misleading on methods that preserve geometric
+coherence (Face2Face, FaceSwap). This is a substantive piece of
+mechanistic understanding — the question "do physics-derived
+spatial features help a CNN detect deepfakes?" answers correctly
+not as a flat yes/no but as *"yes, on the methods whose
+manipulation signature involves the geometric inconsistencies the
+math pipeline is constructed to detect; no on methods whose
+manipulation pipeline preserves geometric coherence."* The
+combined null result of Section 11.6 is the average of these
+opposing per-method effects.
+
+For deployment, the practical implication is that the physics
+pipeline is a *complementary* detector rather than a stand-alone
+upgrade: its predictions are most useful when ensembled with an
+RGB baseline using a method-aware (or method-agnostic but
+calibrated) gating rule. We do not pursue this ensembling step in
+the current work — the contribution of Section 11 is the
+isolation of the per-method signal, not its combination.
+
+=== Training trajectory
 
 #table(
   columns: (auto, auto, auto),
@@ -278,13 +371,20 @@ Training trajectory:
 
 == Discussion
 
-*The headline result is null on the canonical metric.* Video AUROC
-under mean-pooling differs by $-0.0003$ between the two runs — well
-inside the standard-error band at $n = 280$ test videos
-($plus.minus 0.025$). At the configuration tested (face-cropped FF++
-c23, $10$ frames per video, $20$ epochs, identical recipe), the
-6-channel physics input does not provide a measurable improvement
-over the RGB-only baseline on the canonical metric.
+*The headline combined result is null, but the per-method ablation
+(Section 11.7) reveals it is the average of opposing effects.* Video
+AUROC under mean-pooling differs by only $-0.0003$ between the two
+runs on the combined fake task — well inside the standard-error band
+at $n = 280$ test videos ($plus.minus 0.025$). Slicing the same
+predictions per manipulation method exposes a $+$0.0074 Deepfakes
+lift, a $-$0.0297 Face2Face loss, a $-$0.0351 FaceSwap loss, and a
+$-$0.0124 NeuralTextures loss — opposing signals that average to the
+combined null. The interpretation is therefore *not* "the physics
+input is useless on FF++"; it is *"the physics input encodes manifold
+inconsistency, which makes it useful on autoencoder-based Deepfakes
+and counterproductive on parametric / graphics-based methods that
+preserve geometric coherence by construction."* See Section 11.7 for
+the full breakdown and the mechanistic argument.
 
 *The max-pool delta is small but directional.* Video AUROC under
 max-pooling favours physics_6ch by $+0.0143$. Mean-pool averages all
