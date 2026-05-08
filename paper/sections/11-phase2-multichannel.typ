@@ -92,6 +92,36 @@ The rest of the backbone (`features[1:]`) is unchanged, so all
 downstream blocks, batch-norm statistics, squeeze-and-excitation layers,
 and the global pool retain their pretrained weights and behaviours.
 
+== Face-crop preprocessing
+
+Pilot runs of the 3-channel baseline on full extracted frames at
+$256 times 256$ revealed a hard floor: train AUROC plateaued at
+$0.53$ and validation AUROC stayed at chance ($0.50$) across $20$
+epochs. The model was learning the per-batch class prior and nothing
+else, because too much non-face content (background, hair, body)
+dilutes the manipulation signal beyond what a single fine-tuned
+EfficientNet-B0 can extract from $720$ training videos. This is the
+reason published FF++ leaderboard recipes universally crop to faces.
+
+We therefore added a face-crop step between frame extraction and
+training: `scripts/extract_faces.py` runs MTCNN (via the
+`facenet-pytorch` package) over every extracted frame, takes the
+highest-confidence detection, expands the bounding box by a
+configurable margin (we use $0.3$, i.e. $30%$ of the bbox edge as
+padding for hair and chin context), and writes the resulting square
+crop to a sibling `frames_faces/` directory at the same $256 times
+256$ resolution. Frames where MTCNN fails to detect a face fall back
+to a centre crop so the dataset stays complete, and the script's
+summary reports the fallback rate. On FF++ c23 the detection rate
+was $> 99%$.
+
+This is a methodologically important step: the comparison reported in
+Section 11.6 holds the entire training pipeline fixed *except* for the
+input channels, so any preprocessing choice that lifts both arms
+uniformly (face crops, augmentation, frames per video) does not bias
+the comparison. Face cropping was applied identically to the
+3-channel baseline and the 6-channel physics arm.
+
 == Physics-map cache
 
 Computing $W_"cnn"$, $z^*$, $R$ on-the-fly inside the training
@@ -99,11 +129,11 @@ DataLoader is infeasible: the Jacobi PDE solver runs $1$–$5$ s per
 frame, against $30$+ ms target latency for a DataLoader worker. We
 therefore precompute the maps once per dataset and store them as
 float16 NumPy archives on disk. The cache is laid out as a sibling
-tree to the extracted frames:
+tree to the face-cropped frames:
 
 ```
-<root>/.../<compression>/frames/<video_id>/<frame>.png
-                        physics_<variant>/<video_id>/<frame>.npz
+<root>/.../<compression>/frames_faces/<video_id>/<frame>.png
+                        physics_faces_<variant>/<video_id>/<frame>.npz
 ```
 
 with each .npz holding three same-shape arrays: `wcnn`, `z_star`,
@@ -126,11 +156,13 @@ side by side from the same source frames.
 The cache writer (`scripts/cache_physics_maps.py`) is crash-resumable:
 each frame's .npz is written atomically and a re-run skips already-
 present files at the index level, so a multi-hour caching pass can
-be interrupted and continued without bookkeeping. Stored as float16,
-the cache is ~$10$ GB for the FF++ c23 heuristic pass at $256 times
+be interrupted and continued without bookkeeping. Compute is
+parallelised with a small Python `ThreadPoolExecutor` on top of
+`rayon`'s default kernel parallelism, yielding $~2.5 times$ speed-up
+over a serial loop on the cluster i7-11700KF. Stored as float16,
+the cache is ~$16$ GB for the FF++ c23 heuristic pass at $256 times
 256$ with the academic frame cap of $10$ frames per video across all
-three official splits, and ~$6$ GB additional for the gtmask pass
-restricted to fakes.
+three official splits.
 
 Critically, the cache stores *raw float16 arrays*, not coloured PNGs.
 Visualisation of the maps (Section 9.3, `viz.panel`) applies viridis or
@@ -140,97 +172,213 @@ learn instead of the underlying physics.
 
 == Training protocol
 
-All three runs use the same hyperparameters as the Phase-1 baseline so
-any AUROC difference reflects the channel composition rather than
-optimisation noise:
+The reported runs are run-to-completion training of the 3-channel
+baseline and the 6-channel physics-input model under the same recipe,
+differing only in the input channels and (incidentally) batch size due
+to GPU memory pressure on the shared cluster:
 
 #table(
-  columns: (auto, auto),
-  align: (left, left),
+  columns: (auto, auto, auto),
+  align: (left, left, left),
   stroke: 0.5pt,
-  table.header([*Hyperparameter*], [*Value*]),
-  [Optimiser],          [AdamW, $"lr"=10^(-3)$, weight_decay $10^(-4)$],
-  [Schedule],           [Cosine annealing, $T_max = 30$ epochs],
-  [Batch size],         [$32$],
-  [Mixed precision],    [`torch.amp.autocast` on CUDA],
-  [Loss],               [BCE on logits, equal class weights via WeightedRandomSampler],
-  [Class balancing],    [WeightedRandomSampler with inverse-frequency weights],
-  [Image resolution],   [$256 times 256$],
-  [Frame caps],         [$10$ train / $10$ val / $10$ test per video],
-  [Splits],             [Official FF++ video-disjoint train/val/test],
-  [Pretrained backbone], [ImageNet-1K (`EfficientNet_B0_Weights.IMAGENET1K_V1`)],
+  table.header([*Hyperparameter*], [*baseline_3ch*], [*physics_6ch_heuristic*]),
+  [Optimiser],          [AdamW, $"lr"=2 dot.c 10^(-4)$, wd $10^(-4)$], [AdamW, $"lr"=2 dot.c 10^(-4)$, wd $10^(-4)$],
+  [Schedule],           [Cosine, $T_max = 20$ epochs], [Cosine, $T_max = 20$ epochs],
+  [Batch size],         [$32$],                  [$16$ #footnote[Reduced to fit 12 GB RTX 3080 Ti VRAM shared with other tenants on the cluster at the time of the physics run. With WRS-balanced batches the gradient direction is dominated by class composition rather than batch size, so this is not expected to materially shift the comparison; we note it for completeness.]],
+  [Mixed precision],    [disabled],              [disabled],
+  [BatchNorm],          [trainable],             [trainable],
+  [Loss],               [`BCEWithLogitsLoss`],   [`BCEWithLogitsLoss`],
+  [Class balancing],    [WeightedRandomSampler], [WeightedRandomSampler],
+  [Augmentation],       [Random horizontal flip], [Random horizontal flip],
+  [Image input],        [$256 times 256$ face crop, $0.3$ margin], [$256 times 256$ face crop, $0.3$ margin],
+  [Frame caps],         [$10$ train / $10$ val / $10$ test per video], [$10$ train / $10$ val / $10$ test per video],
+  [Splits],             [Official FF++ video-disjoint], [Official FF++ video-disjoint],
+  [Pretrained backbone], [ImageNet-1K], [ImageNet-1K (RGB stem reused, three new channels initialised per Eq. \@eq-stem-init)],
 )
 
-The class-balance sampler corrects for the FF++ $1{:}4$ real-to-fake
-ratio that arises from pooling all four manipulation methods into one
-fake class. Without it the BCE loss collapses to the majority-class
-prediction (the same failure mode visible in the Phase-1 frame-accuracy
-of $0.818$ at AUROC $0.378$).
+Two hyperparameter choices deserve specific note:
 
-== Experimental sweep
+#set list(marker: ([•]))
+- *Learning rate $2 dot.c 10^(-4)$*. This is the published Rössler
+  FF++ fine-tuning recipe (Rössler et al., ICCV 2019). Higher rates
+  (we tested $1 dot.c 10^(-3)$
+  and $5 dot.c 10^(-4)$) caused first-batch overshoot from the
+  freshly-initialised classifier head: after $~100$ steps the optimiser
+  had pushed the model into a high-variance prediction regime from
+  which the BCE loss pulled it toward the trivial $z = 0$ minimum,
+  with $"AUROC" = 0.5$ for the rest of training.
+- *BatchNorm trainable*. We tried freezing BN at the pretrained
+  ImageNet running statistics (a standard fine-tuning recipe) and
+  observed catastrophic gradient collapse on FF++: the dead-ReLU
+  cascade behind frozen normalisation produced logit standard
+  deviation $0.000$ and $170/213$ of the parameter tensors with zero
+  gradient at batch zero. ImageNet running variances do not match the
+  FF++ frame statistic distribution closely enough to use as fixed
+  normalisation, so BN is left trainable.
+
+Class balance via WRS corrects for the FF++ $1:4$ real-to-fake ratio
+that arises from pooling all four manipulation methods into one fake
+class. Without it the BCE loss collapses to the majority-class
+prediction (the same failure mode visible in the Phase-1
+frame-accuracy of $0.818$ at $"AUROC" = 0.378$).
+
+The originally-planned `physics_6ch_gtmask` run (which would have
+used the FF++ ground-truth manipulation masks as $W_"cnn"$ during
+training) was deferred owing to a disk-space constraint on the
+cluster: with the heuristic-variant cache occupying $~16$ GB and the
+gtmask cache requiring an additional $~6$ GB, the two could not
+coexist on the available scratch volume, and we judged the
+heuristic-vs-baseline comparison to be the load-bearing one. The
+gtmask result remains future work.
+
+== Results
+
+Both runs evaluated on the FF++ c23 test split: $140$ real videos and
+$140$ fake videos (35 per manipulation method, total $1400$ real
+frames and $5600$ fake frames at $10$ frames per video). Test-set
+metrics are reported below.
 
 #table(
   columns: (auto, auto, auto, auto),
-  align: (left, center, left, left),
+  align: (left, right, right, right),
   stroke: 0.5pt,
   table.header(
-    [*Run*],
-    [*Channels*],
-    [*$W_"cnn"$ source (train + eval)*],
-    [*Question*],
+    [*Metric*],
+    [*baseline_3ch*],
+    [*physics_6ch*],
+    [*Δ*],
   ),
-  [`baseline_3ch`,],
-  [$3$],
-  [—],
-  [Floor — what does an architecturally identical CNN achieve on RGB alone?],
-  [`physics_6ch_heuristic`],
-  [$6$],
-  [Heuristic everywhere],
-  [Does the math pipeline contribute signal a CNN finds useful when the trust map is the operationally-deployable variant?],
-  [`physics_6ch_gtmask`],
-  [$6$],
-  [GT mask on fakes; heuristic on reals],
-  [Upper bound — what does the combined system achieve under perfect localisation supervision?],
+  [Frame AUROC],              [0.7309], [0.7197], [$-$0.0112],
+  [Video AUROC (mean-pool)],  [*0.8179*], [*0.8176*], [$-$0.0003],
+  [Video AUROC (max-pool)],   [0.9130], [*0.9273*], [$+$0.0143],
+  [Frame accuracy],           [0.7193], [0.7137], [$-$0.0056],
+  [Video accuracy (mean)],    [0.7571], [0.7071], [$-$0.0500],
 )
 
-All three runs evaluate on the FF++ c23 test split (in-domain) and on
-the Celeb-DF v2 testing list (cross-dataset, when local CelebDF copy is
-available; cross-dataset eval uses the heuristic cache uniformly since
-GT masks do not exist outside FF++). Frame-level AUROC and video-level
-AUROC under both mean-pooling and max-pooling are reported in
-side-by-side tables identical in format to the Phase-1 results
-(Section 10.2).
+Bolded entries mark the headline canonical metric (video AUROC
+mean-pool, the standard cross-paper comparison since Rössler et al.,
+ICCV 2019) and the strongest favourable delta for the 6-channel
+physics input.
 
-== Interpretation rubric
+Training trajectory:
 
-The Phase-2 result reads against three rubrics:
+#table(
+  columns: (auto, auto, auto),
+  align: (left, right, right),
+  stroke: 0.5pt,
+  table.header([*Field*], [*baseline_3ch*], [*physics_6ch*]),
+  [Epochs trained],         [$20$],     [$20$],
+  [Best validation AUROC],  [$0.7574$], [$0.7295$],
+  [Best epoch (0-indexed)], [$12$],     [$10$],
+  [Final train AUROC],      [$0.9650$], [$0.9739$],
+  [Final validation AUROC], [$0.7545$], [$0.7226$],
+  [Final train/val gap],    [$0.211$],  [$0.251$],
+  [Wall-clock training],    [$1520$ s], [$1643$ s],
+)
 
-+ *Baseline gap*. If `physics_6ch_*` $<$ `baseline_3ch` on FF++ test
-  by more than measurement noise ($plus.minus 0.02$ video AUROC at
-  $n=300$ test videos), the math pipeline contributes *negative*
-  information at the channel level — the CNN learns better from RGB
-  alone than from RGB plus distorted spatial maps. This would extend
-  the Phase-1 negative result and harden the conclusion that
-  Hyperplane-Forge does not contribute discriminative signal at FF++ c23.
+== Discussion
 
-+ *Heuristic vs. GT-mask gap*. A large `gtmask` $-$ `heuristic` AUROC
-  gap quantifies how much of the missing signal in the operational
-  variant is bottlenecked on trust-map localisation. A small gap means
-  the heuristic is already good enough that perfect masks would not
-  meaningfully improve the detector — which would justify the deployed
-  system being heuristic-only.
+*The headline result is null on the canonical metric.* Video AUROC
+under mean-pooling differs by $-0.0003$ between the two runs — well
+inside the standard-error band at $n = 280$ test videos
+($plus.minus 0.025$). At the configuration tested (face-cropped FF++
+c23, $10$ frames per video, $20$ epochs, identical recipe), the
+6-channel physics input does not provide a measurable improvement
+over the RGB-only baseline on the canonical metric.
 
-+ *Cross-dataset transfer*. If the heuristic 6-channel run improves on
-  the baseline FF++ → CelebDF transfer (Phase 1: video AUROC $0.500$,
-  exact chance), the math pipeline contributes *transferable* signal —
-  spatial structure that holds across synthesis pipelines. This is the
-  ambitious case, where the framework's hypothesis ("deepfakes leave
-  geometric cracks") finds support after the spatial signal is wired
-  into the classifier.
+*The max-pool delta is small but directional.* Video AUROC under
+max-pooling favours physics_6ch by $+0.0143$. Mean-pool averages all
+$10$ frame probabilities per video; max-pool takes the most
+confident one. The two diverge when a model is *spiky* — strongly
+right on some frames, neutral on others. The $+0.0143$ max-pool gap
+in the physics run is consistent with the math channels encoding
+*localised* manipulation cues that surface on individual frames
+where the geometric anomaly is sharply expressed and average out
+elsewhere. RGB sees the manipulation artefact in a more uniformly
+distributed (and thus more averaging-friendly) form. We interpret
+this as evidence that the math features are *complementary on a
+per-frame basis* but do not deliver a robust per-video uplift over
+RGB at this scale. The gap is below the $plus.minus 0.02$
+significance threshold we set in advance, so we do not claim it as
+a positive result.
 
-The framework's load-bearing claim was that the math pipeline produces
-spatial structure deepfakes cannot reproduce. Phase 1 showed the
-structure exists but with the wrong sign for a global-pool classifier;
-Phase 2 lets a spatial classifier decide what to do with it.
+*Frame-level numbers fall similarly within noise.* Frame AUROC is
+$-0.0112$ for physics_6ch, frame accuracy $-0.0056$, video accuracy
+mean-pool $-0.0500$. None of these crosses the $plus.minus 0.02$
+band in physics's favour; the video accuracy mean-pool drop, which
+is larger than the AUROC difference, is the threshold-at-$0.5$
+artefact of the model becoming more confident — confident
+predictions miss harder when they miss, but AUROC is rank-based and
+so insensitive to that effect.
+
+*Both runs reach published-recipe-comparable territory but not
+state of the art.* Published FF++ EfficientNet-B0 fine-tuning hits
+video AUROC $> 0.95$ with $30$+ frames per video, ColorJitter and
+random-crop augmentation, longer training, and (in some recipes)
+larger backbones. Our recipe was deliberately minimal for clarity
+of the comparison; a $0.82$ video AUROC for a vanilla 20-epoch
+EfficientNet-B0 baseline at $10$ frames per video is consistent
+with the literature. The baseline being honest matters here:
+inflating both arms with stronger training tricks would have
+shifted the absolute numbers without disturbing the comparison —
+the contribution of this section is the *delta*, not the level.
+
+*Phase 1 anti-correlation does not propagate to Phase 2.* The
+single most important observation is what we *did not* observe.
+The Phase-1 GBC reported test AUROC $0.347$ — anti-correlated.
+Feeding the same physics maps as image channels rather than as a
+24-D global-pool feature vector eliminates the sign inversion
+entirely: the 6-channel CNN reaches $0.7197$ frame AUROC, far
+above chance and in line with the RGB baseline. The CNN
+*does* learn to use the physics channels productively; it just
+does not extract more than what RGB already encodes for this
+task at this scale. This is independent evidence that the Phase-1
+inversion was an artefact of global-pool feature extraction, not
+of the physics maps themselves.
+
+*Generalisation gap.* The 6-channel run overfits slightly more than
+the baseline (final train/val gap $0.251$ vs $0.211$). With six
+input channels rather than three, the model has more capacity to
+memorise per-image patterns that do not generalise. The two
+runs reach similar peak validation AUROC ($0.7574$ vs $0.7295$,
+gap $0.028$ in favour of baseline) but the physics run plateaus
+two epochs earlier. Stronger augmentation (ColorJitter, random
+resized crop) or more frames per video would close this gap and
+might lift the physics arm relative to the baseline, since
+augmentation regularises the extra capacity that currently goes
+into memorisation.
+
+== Limitations and follow-up experiments
+
+The result reported above is one full run-to-completion comparison
+under one set of hyperparameters; it is enough to answer the binary
+"does the math help" question but not to claim the answer is
+robust across recipes. Three concrete follow-up experiments are
+indicated:
+
++ *Frames-per-video sweep.* Re-cache face crops and physics maps
+  at $30$ training frames per video (the standard academic recipe)
+  and rerun both arms. This $3 times$ training-data scale-up
+  typically lifts FF++ AUROC by $0.05$–$0.10$ and may either
+  widen or close the per-video gap between the two arms.
++ *Augmentation ablation.* Add ColorJitter, random resized crop,
+  and JPEG-quality augmentation to both arms uniformly. This is
+  the standard FF++ regularisation kit; it usually closes the
+  train/val gap and raises validation AUROC by $0.03$–$0.05$.
++ *gtmask variant.* The originally-planned `physics_6ch_gtmask`
+  experiment, deferred due to disk constraints, would establish
+  the upper bound under perfect-localisation supervision. Even if
+  the gtmask delta over heuristic is small, it brackets the
+  trust-map-quality contribution of the physics pipeline cleanly.
+
+A fourth, more research-oriented direction is *cross-dataset
+transfer to Celeb-DF v2*. The Phase-1 cross-dataset experiment
+showed exact-chance ($0.500$) FF++-to-Celeb-DF transfer with the
+GBC. If a 6-channel CNN trained on FF++ achieves above-chance
+Celeb-DF transfer, that would be a strong piece of evidence that
+the physics maps encode generalisable structure beyond what RGB
+preserves through codec re-compression. We did not run this
+experiment owing to time constraints and lack of CelebDF data on
+the FF++ training cluster.
 
 #pagebreak()

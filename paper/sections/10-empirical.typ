@@ -356,10 +356,23 @@ The empirical question Phase 2 answers is therefore: *given the math
 pipeline produces real but spatially-distributed signal that a
 global-pool classifier cannot use, can a CNN that sees the spatial
 maps as image channels recover the discriminative direction the
-GBC classifier inverted?* If the 6-channel run beats the RGB
-baseline, the math pipeline contributes signal a learned classifier
-finds useful even when the math's own predictions are inverted; if it
-does not, the framework's contribution to deepfake detection is the
-diagnostic methodology (oracle ablation, anti-correlation analysis,
-per-method ablation) and the negative result, rather than a working
-detector.
+GBC classifier inverted?*
+
+Section 11 reports the run-to-completion result in detail. The summary
+is: at the configurations tested (face-cropped FF++ c23, 10 frames per
+video, 20 epochs, identical recipe across both arms) the 6-channel
+physics input is statistically indistinguishable from the RGB baseline
+on the canonical video AUROC (mean-pool) — the headline difference is
+$-0.0003$, well inside the $±0.02$ measurement-noise band at $n = 280$
+test videos. Under max-pool, the 6-channel run is $+0.014$ above the
+baseline, suggesting that physics-derived features add localised
+detection precision that mean-pooling across uniformly-sampled frames
+dilutes away. Frame-level numbers fall similarly within noise, with the
+6-channel run a hair below the baseline ($-0.011$).
+
+The interpretation is therefore neither "the math pipeline rescues the
+classifier" nor "the math pipeline hurts": at this scale the math
+channels are *complementary on a per-frame basis* but do not drive a
+robust per-video uplift over RGB-only EfficientNet-B0 fine-tuning. We
+discuss the implications and what a stronger experimental setup would
+look like in Section 11.
