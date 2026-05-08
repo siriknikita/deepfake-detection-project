@@ -104,7 +104,10 @@ def _load_model(args: argparse.Namespace, kind: str, *, in_channels: int) -> Any
     else:
         msg = f"unknown kind {kind!r}"
         raise ValueError(msg)
-    if not weights or not Path(weights).exists():
+    # `argparse(type=Path)` turns an empty string into Path(".") which is
+    # truthy and exists() == True. Use is_file() so the documented "set to ''
+    # to skip" behaviour actually works for both empty strings and bogus paths.
+    if not weights or not Path(weights).is_file():
         return None
     load_weights(model, weights)
     return model

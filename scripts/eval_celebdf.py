@@ -135,8 +135,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.weights.exists():
-        msg = f"--weights path does not exist: {args.weights}"
+    if not args.weights.is_file():
+        msg = f"--weights is not a file: {args.weights}"
         raise FileNotFoundError(msg)
     if not args.celeb_data_root.exists():
         msg = f"--celeb-data-root does not exist: {args.celeb_data_root}"
