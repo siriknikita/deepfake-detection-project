@@ -270,9 +270,11 @@ def main() -> int:
     parser.add_argument(
         "--device",
         default="cuda",
-        choices=("cpu", "cuda"),
-        help="Where to run MTCNN. cuda recommended; ~50ms per frame on "
-        "RTX 3080 Ti vs ~500ms on CPU.",
+        choices=("cpu", "cuda", "mps"),
+        help="Where to run MTCNN. cuda recommended on Linux clusters "
+        "(~50ms per frame on RTX 3080 Ti); mps on Apple Silicon "
+        "(~70-100ms per frame on M-series); cpu is the slowest fallback "
+        "(~500ms per frame).",
     )
     parser.add_argument("--log-every", type=int, default=200)
     args = parser.parse_args()
