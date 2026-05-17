@@ -52,6 +52,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _CROP_SIZE = 256
 _CROP_MARGIN = 0.3
+# Disclosed face-quality gate. A face is "usable" only if MTCNN returns a
+# box with detection probability >= this; otherwise the crop is just
+# background and any verdict on it is meaningless (garbage in / out).
+# This is a precondition check applied uniformly to every input — not
+# answer-steering.
+_FACE_MIN_PROB = 0.90
 
 
 class InferenceError(RuntimeError):
@@ -264,16 +270,20 @@ def _square_box(
     )
 
 
-def _face_crop(pil_image: Any) -> tuple[np.ndarray, bool]:
-    """Detect the largest face and return ``(256x256x3 float32 [0,1], found)``.
+def _face_crop(pil_image: Any) -> tuple[np.ndarray, bool, float]:
+    """Detect the largest face; return ``(256² float32 [0,1], found, prob)``.
 
-    Falls back to a centre square crop when no face is detected — the
-    same completeness contract the training preprocessing uses.
+    ``prob`` is MTCNN's detection confidence for the kept box (``0.0``
+    when no box). Falls back to a centre square crop when no face is
+    detected — the same completeness contract the training preprocessing
+    uses — but the caller can reject low-``prob`` crops via
+    :data:`_FACE_MIN_PROB`.
     """
     from PIL import Image
 
     mtcnn = _get_mtcnn()
-    boxes, _probs = mtcnn.detect(pil_image)
+    boxes, probs = mtcnn.detect(pil_image)
+    prob = 0.0
     if boxes is not None and len(boxes) > 0:
         box_arr = boxes if boxes.ndim == 1 else boxes[0]
         box = _square_box(
@@ -283,6 +293,8 @@ def _face_crop(pil_image: Any) -> tuple[np.ndarray, bool]:
             _CROP_MARGIN,
         )
         found = True
+        if probs is not None and len(probs) > 0 and probs[0] is not None:
+            prob = float(probs[0])
     else:
         side = min(pil_image.width, pil_image.height)
         x1 = (pil_image.width - side) // 2
@@ -291,7 +303,7 @@ def _face_crop(pil_image: Any) -> tuple[np.ndarray, bool]:
         found = False
     crop = pil_image.crop(box).resize((_CROP_SIZE, _CROP_SIZE), Image.BILINEAR)
     rgb = np.asarray(crop, dtype=np.float32) / 255.0
-    return rgb, found
+    return rgb, found, prob
 
 
 # --------------------------------------------------------------------------- #
@@ -538,7 +550,10 @@ def _safe_parse(spec_str: str) -> list[Any]:
 
 
 def _analyse_crop(
-    specs: list[ModelSpec], crop_rgb: np.ndarray, face_found: bool
+    specs: list[ModelSpec],
+    crop_rgb: np.ndarray,
+    face_found: bool,
+    face_prob: float = 1.0,
 ) -> dict[str, object]:
     """Score + visualise every selected model on one prepared face crop."""
     needs_maps = any(s.kind == "heuristic" or s.model_type == "physics" for s in specs)
@@ -578,6 +593,11 @@ def _analyse_crop(
     return {
         "input": _rgb_b64(crop_rgb),
         "face_detected": face_found,
+        "face": {
+            "detected": face_found,
+            "prob": round(face_prob, 4),
+            "usable": face_found and face_prob >= _FACE_MIN_PROB,
+        },
         "kind": "image",
         "peak": peak,
         "models": models_out,
@@ -588,8 +608,8 @@ def infer_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
     """Run every selected model on one image and return a comparison."""
     specs = _resolve_model_ids(model_ids)
     pil = _decode_image(image_bytes)
-    crop_rgb, face_found = _face_crop(pil)
-    return _analyse_crop(specs, crop_rgb, face_found)
+    crop_rgb, face_found, face_prob = _face_crop(pil)
+    return _analyse_crop(specs, crop_rgb, face_found, face_prob)
 
 
 def score_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
@@ -605,7 +625,7 @@ def score_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
     """
     specs = _resolve_model_ids(model_ids)
     pil = _decode_image(image_bytes)
-    crop_rgb, face_found = _face_crop(pil)
+    crop_rgb, face_found, face_prob = _face_crop(pil)
     cnn_scores = _score_crop(specs, crop_rgb)
 
     models: dict[str, object] = {}
@@ -615,7 +635,12 @@ def score_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
             "score": sc,
             "verdict": (None if sc is None else ("fake" if sc >= 0.5 else "real")),
         }
-    return {"face_detected": face_found, "models": models}
+    return {
+        "face_detected": face_found,
+        "face_prob": round(face_prob, 4),
+        "face_usable": face_found and face_prob >= _FACE_MIN_PROB,
+        "models": models,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -709,34 +734,56 @@ def infer_video(
     model_ids: list[str],
     progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, object]:
-    """Sample frames, score each, mean-pool to a video-level verdict.
+    """Sample frames, gate on face quality, pool to a video verdict.
 
-    Visuals (6-panel, channel previews) are rendered only for the single
-    most-suspicious frame; per-frame P(fake) is returned for the timeline.
+    Only frames with a usable face (MTCNN prob >= :data:`_FACE_MIN_PROB`)
+    enter the aggregation — faceless / garbage frames are excluded so the
+    pooled number reflects actual face content. Each model is pooled both
+    by **mean** (the verdict, matching the paper's headline video metric)
+    and **max** (the per-frame robustness check the paper also reports —
+    a clip manipulated in only some frames is diluted by mean but caught
+    by max). The representative visual is the **median** usable frame,
+    not the most-suspicious one. ``face.usable`` lets the UI refuse a
+    meaningful verdict when too few frames have a face.
     """
     specs = _resolve_model_ids(model_ids)
     frames = _extract_frames(video_bytes, _VIDEO_FRAMES)
     total = len(frames)
-
     cnn_ids = [s.id for s in specs if s.kind == "cnn"]
-    per_frame: list[dict[str, float]] = []
+
     crops: list[np.ndarray] = []
-    faces: list[bool] = []
-    for idx, pil in enumerate(frames):
-        crop_rgb, found = _face_crop(pil)
+    founds: list[bool] = []
+    probs: list[float] = []
+    for pil in frames:
+        crop_rgb, found, prob = _face_crop(pil)
         crops.append(crop_rgb)
-        faces.append(found)
-        per_frame.append(_score_crop(specs, crop_rgb))
+        founds.append(found)
+        probs.append(prob)
+
+    usable = [
+        i for i in range(total) if founds[i] and probs[i] >= _FACE_MIN_PROB
+    ]
+    # Score only the frames that enter the aggregation. If none are
+    # usable we still score the middle frame so the table has numbers,
+    # but face.usable=False tells the UI the verdict is not meaningful.
+    score_idx = usable if usable else [total // 2]
+    per_frame: dict[int, dict[str, float]] = {}
+    for done, i in enumerate(score_idx, 1):
+        per_frame[i] = _score_crop(specs, crops[i])
         if progress is not None:
-            progress(idx + 1, total)
+            progress(done, len(score_idx))
 
-    def frame_alarm(i: int) -> float:
+    def alarm(i: int) -> float:
         vals = [per_frame[i][m] for m in cnn_ids if m in per_frame[i]]
-        return sum(vals) / len(vals) if vals else -1.0
+        return sum(vals) / len(vals) if vals else 0.0
 
-    rep = max(range(total), key=frame_alarm) if cnn_ids else total // 2
+    if cnn_ids:
+        ordered = sorted(score_idx, key=alarm)
+        rep = ordered[len(ordered) // 2]  # median-alarm frame
+    else:
+        rep = score_idx[len(score_idx) // 2]
 
-    result = _analyse_crop(specs, crops[rep], faces[rep])
+    result = _analyse_crop(specs, crops[rep], founds[rep], probs[rep])
     models = cast("list[dict[str, object]]", result["models"])
 
     peak: dict[str, object] | None = None
@@ -744,10 +791,14 @@ def infer_video(
     for entry in models:
         mid = cast("str", entry["id"])
         if mid in cnn_ids:
-            series = [per_frame[i][mid] for i in range(total) if mid in per_frame[i]]
-            mean = sum(series) / len(series) if series else 0.0
+            series = [per_frame[i][mid] for i in score_idx if mid in per_frame[i]]
+            if not series:
+                continue
+            mean = sum(series) / len(series)
+            mx = max(series)
             verdict = "fake" if mean >= 0.5 else "real"
             entry["score"] = mean
+            entry["score_max"] = mx
             entry["verdict"] = verdict
             entry["frame_scores"] = series
             if mean > peak_s:
@@ -759,9 +810,18 @@ def infer_video(
                     "verdict": verdict,
                 }
 
+    n_usable = len(usable)
     result["peak"] = peak
     result["kind"] = "video"
     result["n_frames"] = total
+    result["face_detected"] = n_usable > 0
+    result["face"] = {
+        "detected": any(founds),
+        "usable": n_usable > 0,
+        "usable_frames": n_usable,
+        "total_frames": total,
+        "min_prob": _FACE_MIN_PROB,
+    }
     return result
 
 

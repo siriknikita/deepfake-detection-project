@@ -367,6 +367,13 @@ body {
   white-space: nowrap;
 }
 .grid-table .num.dim { color: var(--ink-3); font-weight: 400; }
+.grid-table .num .sub {
+  display: block;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
 
 .conf { display: flex; align-items: center; gap: 10px; }
 .conf-num {

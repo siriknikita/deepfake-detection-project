@@ -159,7 +159,23 @@ export default function ResultView({ r }: { r: DetectResults }) {
   const d = decide(r.models);
   const dissent = new Set(d.dissentIds);
   const isVideo = r.kind === "video";
-  const frameNote = isVideo ? ` · mean-pooled over ${r.n_frames ?? 0} frames` : "";
+  const face = r.face;
+  const faceUnusable = !!face && !face.usable;
+  const usedFrames = isVideo
+    ? (face?.usable_frames ?? r.n_frames ?? 0)
+    : 0;
+  const frameNote = isVideo
+    ? ` · mean-pooled over ${usedFrames} face-valid frame${usedFrames === 1 ? "" : "s"}`
+    : "";
+  // Strongest single-frame signal across models (paper's max-pool axis).
+  const maxScores = r.models
+    .map((m) => m.score_max)
+    .filter((x): x is number => typeof x === "number");
+  const maxAny = maxScores.length ? Math.max(...maxScores) : null;
+  const maxNote =
+    isVideo && maxAny !== null
+      ? ` · max-pool reached ${pct(maxAny)} on a single frame`
+      : "";
 
   return (
     <div className="results">
@@ -168,17 +184,32 @@ export default function ResultView({ r }: { r: DetectResults }) {
         <Head
           idx="03"
           title="Input → transform"
-          meta={isVideo ? `video · ${r.n_frames ?? 0} frames sampled` : "settled manifolds"}
+          meta={
+            isVideo
+              ? `video · ${usedFrames}/${face?.total_frames ?? r.n_frames ?? 0} usable frames`
+              : "settled manifolds"
+          }
         />
         <div className="io">
           <figure className="specimen">
             <img src={r.input} alt="model input — face crop" />
             <figcaption className="cap">
-              <b>{isVideo ? "Most suspicious frame" : "Input"}</b> · 256² crop{" "}
-              {r.face_detected ? (
-                <span>· face detected</span>
+              <b>{isVideo ? "Representative frame" : "Input"}</b> · 256² crop{" "}
+              {isVideo ? (
+                <span className={faceUnusable ? "warn" : ""}>
+                  · {usedFrames}/{face?.total_frames ?? r.n_frames ?? 0} frames
+                  with a usable face
+                </span>
+              ) : faceUnusable ? (
+                <span className="warn">
+                  · no usable face
+                  {face?.prob != null ? ` (p=${face.prob.toFixed(2)})` : ""}
+                </span>
               ) : (
-                <span className="warn">· no face — centre crop</span>
+                <span>
+                  · face detected
+                  {face?.prob != null ? ` (p=${face.prob.toFixed(2)})` : ""}
+                </span>
               )}
             </figcaption>
           </figure>
@@ -245,6 +276,11 @@ export default function ResultView({ r }: { r: DetectResults }) {
                     </td>
                     <td className={`num ${m.score === null ? "dim" : ""}`}>
                       {m.score === null ? "—" : pct(m.score)}
+                      {m.score !== null && m.score_max !== undefined && (
+                        <span className="sub">
+                          mean · max {pct(m.score_max)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -261,13 +297,32 @@ export default function ResultView({ r }: { r: DetectResults }) {
           title="Summary"
           meta={isVideo ? "consensus · pooled" : "model consensus"}
         />
-        {d.state === "none" && (
+        {faceUnusable ? (
           <div className="peak none">
             <div className="peak-none">
-              No calibrated score — only the heuristic (diagnostic-only) was run.
+              {isVideo
+                ? `No usable face — only ${face?.usable_frames ?? 0} of ${
+                    face?.total_frames ?? 0
+                  } sampled frames had a face above the ${pct(
+                    face?.min_prob ?? 0.9,
+                  )} detector threshold.`
+                : `No usable face — detector confidence ${
+                    face?.prob != null ? pct(face.prob) : "low"
+                  } is below the ${pct(face?.min_prob ?? 0.9)} threshold.`}{" "}
+              This input is outside the face detector's domain — the
+              per-model scores above are not a meaningful verdict.
             </div>
           </div>
-        )}
+        ) : (
+          <>
+            {d.state === "none" && (
+              <div className="peak none">
+                <div className="peak-none">
+                  No calibrated score — only the heuristic (diagnostic-only)
+                  was run.
+                </div>
+              </div>
+            )}
         {d.state === "uncertain" && (
           <div className="peak uncertain">
             <div className="peak-grid">
@@ -286,7 +341,8 @@ export default function ResultView({ r }: { r: DetectResults }) {
                         ? ` · ${d.undecided} undecided`
                         : ""}{" "}
                       · mean P(fake) {pct(d.pMean)}
-                      {frameNote}. The confident branches split on the
+                      {frameNote}
+                      {maxNote}. The confident branches split on the
                       verdict — single-model verdicts are not trustworthy
                       here; see the per-model breakdown above.
                     </>
@@ -322,6 +378,7 @@ export default function ResultView({ r }: { r: DetectResults }) {
                   this {isVideo ? "video" : "image"} is{" "}
                   <b>{d.state === "fake" ? "a deepfake" : "real"}</b>
                   {frameNote}
+                  {maxNote}
                 </div>
               </div>
               <div className={`peak-score ${d.state}`}>
@@ -332,6 +389,8 @@ export default function ResultView({ r }: { r: DetectResults }) {
               </div>
             </div>
           </div>
+            )}
+          </>
         )}
       </div>
     </div>

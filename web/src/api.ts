@@ -24,12 +24,23 @@ export interface ModelResult {
   note: string | null;
   panel: string | null;
   channels: ChannelPreview[];
-  frame_scores?: number[]; // video only — per-frame P(fake)
+  frame_scores?: number[]; // video only — per-frame P(fake) over usable frames
+  score_max?: number; // video only — max-pool P(fake)
+}
+
+export interface FaceInfo {
+  detected: boolean;
+  usable: boolean;
+  prob?: number; // image
+  usable_frames?: number; // video
+  total_frames?: number; // video
+  min_prob?: number;
 }
 
 export interface DetectResults {
   input: string;
   face_detected: boolean;
+  face?: FaceInfo;
   kind: "image" | "video";
   n_frames?: number; // video only
   models: ModelResult[];
