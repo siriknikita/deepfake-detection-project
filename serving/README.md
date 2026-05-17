@@ -39,7 +39,8 @@ same-origin. Open the frontend URL and the model list loads from
 |--------|---------------|----------------------------------------------------|
 | GET    | `/api/health` | Liveness probe.                                    |
 | GET    | `/api/models` | Selectable model registry + per-model availability.|
-| POST   | `/api/detect` | Multipart `file` + repeated `model_ids`; per-model comparison. |
+| POST   | `/api/detect` | Multipart `file` + repeated `model_ids`. Image → inline `{filename, results}`. Video → `{job_id, kind}`. |
+| GET    | `/api/jobs/{id}` | Poll a video job: `status`, `done`/`total`, `result`/`error`. |
 
 ## Status
 
@@ -49,9 +50,11 @@ same-origin. Open the frontend URL and the model list loads from
 - **Phase 2 (done):** CNN single-image inference adapter — MTCNN
   face-crop, one shared physics solve, frequency maps, channel assembly
   through the public `ChannelSource` contract, all 3 checkpoints scored.
-  Image upload → per-model comparison + channel previews + green peak
-  verdict is live end-to-end.
-- **Phase 3:** video input with async jobs.
+- **Phase 3 (done):** video input — ffmpeg samples `_VIDEO_FRAMES`
+  evenly-spaced frames, each scored, mean-pooled to a video verdict;
+  visuals rendered for the most-suspicious frame; per-frame P(fake)
+  returned for a timeline sparkline. Runs as a background job
+  (`serving/jobs.py`) with progress polling.
 - **Phase 4:** UX polish + error handling.
 
 `POST /api/detect` (image) returns: `input` (face crop), `face_detected`,

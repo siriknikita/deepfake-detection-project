@@ -35,9 +35,10 @@ from __future__ import annotations
 import base64
 import io
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -536,18 +537,10 @@ def _safe_parse(spec_str: str) -> list[Any]:
 # --------------------------------------------------------------------------- #
 
 
-def infer_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
-    """Run every selected model on one image and return a comparison.
-
-    The shape is designed for the results UI: a shared face crop, the
-    heuristic 6-panel manifold figure, per-model scores + channel
-    previews, and the green peak verdict.
-    """
-    specs = _resolve_model_ids(model_ids)
-
-    pil = _decode_image(image_bytes)
-    crop_rgb, face_found = _face_crop(pil)
-
+def _analyse_crop(
+    specs: list[ModelSpec], crop_rgb: np.ndarray, face_found: bool
+) -> dict[str, object]:
+    """Score + visualise every selected model on one prepared face crop."""
     needs_maps = any(s.kind == "heuristic" or s.model_type == "physics" for s in specs)
     maps = _compute_maps(crop_rgb) if needs_maps else _Maps(crop_rgb, crop_rgb[..., 0], None)
 
@@ -585,9 +578,165 @@ def infer_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
     return {
         "input": _rgb_b64(crop_rgb),
         "face_detected": face_found,
+        "kind": "image",
         "peak": peak,
         "models": models_out,
     }
+
+
+def infer_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
+    """Run every selected model on one image and return a comparison."""
+    specs = _resolve_model_ids(model_ids)
+    pil = _decode_image(image_bytes)
+    crop_rgb, face_found = _face_crop(pil)
+    return _analyse_crop(specs, crop_rgb, face_found)
+
+
+# --------------------------------------------------------------------------- #
+# Video — sampled frames, per-frame scoring, mean-pooled verdict
+# --------------------------------------------------------------------------- #
+
+_VIDEO_FRAMES = 12
+
+
+def _score_crop(specs: list[ModelSpec], crop_rgb: np.ndarray) -> dict[str, float]:
+    """CNN deepfake probability per model for one crop (no visuals)."""
+    cnn = [s for s in specs if s.kind == "cnn"]
+    if not cnn:
+        return {}
+    needs_maps = any(s.model_type == "physics" for s in cnn)
+    maps = _compute_maps(crop_rgb) if needs_maps else _Maps(crop_rgb, crop_rgb[..., 0], None)
+    return {s.id: _cnn_score(s, maps) for s in cnn}
+
+
+def _extract_frames(video_bytes: bytes, n: int) -> list[Any]:
+    """Sample up to ``n`` evenly-spaced frames from a video via ffmpeg.
+
+    Mirrors the repo's ffmpeg-CLI convention (scripts/extract_frames.py)
+    rather than adding a decoder dependency. Seeks to ``n`` evenly-spaced
+    timestamps; falls back to fps sampling when the duration is unknown.
+    """
+    import shutil
+    import subprocess
+    import tempfile
+
+    from PIL import Image
+
+    if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
+        raise InferenceError("video input requires ffmpeg/ffprobe on PATH")
+
+    tmp = Path(tempfile.mkdtemp(prefix="forge_vid_"))
+    try:
+        src = tmp / "in.bin"
+        src.write_bytes(video_bytes)
+
+        duration = 0.0
+        try:
+            probe = subprocess.run(
+                [
+                    "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    "-of", "default=nokey=1:noprint_wrappers=1", str(src),
+                ],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            duration = float(probe.stdout.strip())
+        except (ValueError, OSError, subprocess.SubprocessError):
+            duration = 0.0
+
+        produced: list[Path] = []
+        if duration > 0.0:
+            for i in range(n):
+                t = duration * (i + 0.5) / n
+                out = tmp / f"f{i:03d}.jpg"
+                subprocess.run(
+                    [
+                        "ffmpeg", "-v", "error", "-ss", f"{t:.3f}", "-i", str(src),
+                        "-frames:v", "1", "-q:v", "3", "-y", str(out),
+                    ],
+                    capture_output=True, timeout=60, check=False,
+                )
+                if out.exists():
+                    produced.append(out)
+        if not produced:
+            subprocess.run(
+                [
+                    "ffmpeg", "-v", "error", "-i", str(src), "-vf", "fps=2",
+                    "-frames:v", str(n), "-q:v", "3", "-y", str(tmp / "g%03d.jpg"),
+                ],
+                capture_output=True, timeout=120, check=False,
+            )
+            produced = sorted(tmp.glob("g*.jpg"))
+        if not produced:
+            raise InferenceError("could not decode any frames from the video")
+
+        frames: list[Any] = []
+        for p in produced:
+            with Image.open(p) as im:
+                frames.append(im.convert("RGB").copy())
+        return frames
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def infer_video(
+    video_bytes: bytes,
+    model_ids: list[str],
+    progress: Callable[[int, int], None] | None = None,
+) -> dict[str, object]:
+    """Sample frames, score each, mean-pool to a video-level verdict.
+
+    Visuals (6-panel, channel previews) are rendered only for the single
+    most-suspicious frame; per-frame P(fake) is returned for the timeline.
+    """
+    specs = _resolve_model_ids(model_ids)
+    frames = _extract_frames(video_bytes, _VIDEO_FRAMES)
+    total = len(frames)
+
+    cnn_ids = [s.id for s in specs if s.kind == "cnn"]
+    per_frame: list[dict[str, float]] = []
+    crops: list[np.ndarray] = []
+    faces: list[bool] = []
+    for idx, pil in enumerate(frames):
+        crop_rgb, found = _face_crop(pil)
+        crops.append(crop_rgb)
+        faces.append(found)
+        per_frame.append(_score_crop(specs, crop_rgb))
+        if progress is not None:
+            progress(idx + 1, total)
+
+    def frame_alarm(i: int) -> float:
+        vals = [per_frame[i][m] for m in cnn_ids if m in per_frame[i]]
+        return sum(vals) / len(vals) if vals else -1.0
+
+    rep = max(range(total), key=frame_alarm) if cnn_ids else total // 2
+
+    result = _analyse_crop(specs, crops[rep], faces[rep])
+    models = cast("list[dict[str, object]]", result["models"])
+
+    peak: dict[str, object] | None = None
+    peak_s = -1.0
+    for entry in models:
+        mid = cast("str", entry["id"])
+        if mid in cnn_ids:
+            series = [per_frame[i][mid] for i in range(total) if mid in per_frame[i]]
+            mean = sum(series) / len(series) if series else 0.0
+            verdict = "fake" if mean >= 0.5 else "real"
+            entry["score"] = mean
+            entry["verdict"] = verdict
+            entry["frame_scores"] = series
+            if mean > peak_s:
+                peak_s = mean
+                peak = {
+                    "model_id": mid,
+                    "model_label": entry["label"],
+                    "score": mean,
+                    "verdict": verdict,
+                }
+
+    result["peak"] = peak
+    result["kind"] = "video"
+    result["n_frames"] = total
+    return result
 
 
 __all__ = [
@@ -596,5 +745,6 @@ __all__ = [
     "ModelSpec",
     "get_model_spec",
     "infer_image",
+    "infer_video",
     "list_models",
 ]

@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { detect, fetchModels, type DetectResults, type ModelInfo } from "./api";
+import {
+  detect,
+  fetchModels,
+  type DetectResults,
+  type ModelInfo,
+  type Progress,
+} from "./api";
 import ResultView from "./ResultView";
 
 function metaTag(m: ModelInfo): string {
@@ -14,6 +20,7 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DetectResults | null>(null);
@@ -43,14 +50,23 @@ export default function App() {
     setBusy(true);
     setError(null);
     setResult(null);
+    setProgress(null);
     try {
-      const res = await detect(file, [...selected]);
-      setResult(res.results);
+      const r = await detect(file, [...selected], setProgress);
+      setResult(r);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
+  }
+
+  function busyLabel(): string {
+    if (progress && progress.total > 0) {
+      return `Analysing frame ${progress.done} / ${progress.total}`;
+    }
+    return progress ? "Decoding video…" : "Analysing…";
   }
 
   const armed = models.filter((m) => selected.has(m.id)).length;
@@ -151,7 +167,7 @@ export default function App() {
         onClick={run}
       >
         {busy
-          ? "Analysing…"
+          ? busyLabel()
           : `Run ${selected.size} model${selected.size === 1 ? "" : "s"}`}
       </button>
 

@@ -10,6 +10,26 @@ function confidence(score: number): number {
   return Math.max(score, 1 - score);
 }
 
+// Per-frame P(fake) over the sampled video frames.
+function Sparkline({ values, fake }: { values: number[]; fake: boolean }) {
+  const w = 104;
+  const h = 24;
+  const n = values.length;
+  const pts = values
+    .map((v, i) => {
+      const x = n === 1 ? w / 2 : (i / (n - 1)) * w;
+      const y = (1 - Math.min(1, Math.max(0, v))) * h;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+  return (
+    <svg className={`spark ${fake ? "fake" : "real"}`} viewBox={`0 0 ${w} ${h}`}>
+      <line x1="0" y1={h / 2} x2={w} y2={h / 2} className="spark-mid" />
+      <polyline points={pts} />
+    </svg>
+  );
+}
+
 function Head({ idx, title, meta }: { idx: string; title: string; meta: string }) {
   return (
     <div className="sec-head">
@@ -64,17 +84,23 @@ export default function ResultView({ r }: { r: DetectResults }) {
     if (best === null) return m;
     return confidence(m.score as number) > confidence(best.score as number) ? m : best;
   }, null);
+  const isVideo = r.kind === "video";
+  const frameNote = isVideo ? ` · mean-pooled over ${r.n_frames ?? 0} frames` : "";
 
   return (
     <div className="results">
       {/* 03 — input transformed into output */}
       <div>
-        <Head idx="03" title="Input → transform" meta="settled manifolds" />
+        <Head
+          idx="03"
+          title="Input → transform"
+          meta={isVideo ? `video · ${r.n_frames ?? 0} frames sampled` : "settled manifolds"}
+        />
         <div className="io">
           <figure className="specimen">
             <img src={r.input} alt="model input — face crop" />
             <figcaption className="cap">
-              <b>Input</b> · 256² crop{" "}
+              <b>{isVideo ? "Most suspicious frame" : "Input"}</b> · 256² crop{" "}
               {r.face_detected ? (
                 <span>· face detected</span>
               ) : (
@@ -113,7 +139,15 @@ export default function ResultView({ r }: { r: DetectResults }) {
                     key={m.id}
                     className={isTop ? `is-peak ${m.verdict ?? ""}` : ""}
                   >
-                    <td className="m-name">{m.label}</td>
+                    <td className="m-name">
+                      <span>{m.label}</span>
+                      {m.frame_scores && m.frame_scores.length > 1 && (
+                        <Sparkline
+                          values={m.frame_scores}
+                          fake={m.verdict === "fake"}
+                        />
+                      )}
+                    </td>
                     <td>
                       {m.verdict === null ? (
                         <span className="tag diag">diagnostic</span>
@@ -148,15 +182,21 @@ export default function ResultView({ r }: { r: DetectResults }) {
 
       {/* 05 — summary */}
       <div>
-        <Head idx="05" title="Summary" meta="most confident model" />
+        <Head
+          idx="05"
+          title="Summary"
+          meta={isVideo ? "most confident · pooled" : "most confident model"}
+        />
         {top && top.score !== null && top.verdict ? (
           <div className={`peak ${top.verdict}`}>
             <div className="peak-grid">
               <div>
                 <div className="peak-label">Verdict · {top.label}</div>
                 <div className="peak-model">
-                  P(fake) {pct(top.score)} · confident this image is{" "}
+                  P(fake) {pct(top.score)} · confident this{" "}
+                  {isVideo ? "video" : "image"} is{" "}
                   <b>{top.verdict === "fake" ? "a deepfake" : "real"}</b>
+                  {frameNote}
                 </div>
               </div>
               <div className={`peak-score ${top.verdict}`}>
