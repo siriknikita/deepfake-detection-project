@@ -488,6 +488,72 @@ training regime — varying the quantisation of the training corpus
 so the label can no longer be predicted from the codec — is the
 single most promising robustness intervention for the next phase.
 
+== Score calibration and the decision threshold
+<sec-phase3-calib>
+
+Every number defended in this chapter is rank-based: frame and video
+AUROC and the per-method / cross-dataset deltas between builds. The
+per-frame sigmoid output $sigma(z)$ is used only to *rank*; it is not
+treated as a calibrated posterior, and the empirical chapter never
+reports an accuracy or a verdict at a fixed operating point. This
+subsection makes that scoping assumption explicit, because the
+accompanying demo (`forge_detect.serving_infer`) does surface a binary
+verdict and a per-input percentage, and neither may be read as a
+calibrated probability.
+
+#set list(marker: ([•]))
+- *The scores are uncalibrated.* The checkpoint-selection discussion
+  of @sec-phase3-results documents the mechanism: under BCE-on-logits
+  the validation loss climbed monotonically for $17$ epochs while
+  validation AUROC kept rising — the textbook signature of logit
+  magnitudes inflating without changing the rank. Inflated logits push
+  $sigma(z)$ toward its saturation regions, so the absolute value is
+  not a frequency-valid probability even though its ordering is
+  informative. A score of $0.57$ means "slightly above this model's
+  score median on this distribution", not "a 57 percent chance of
+  being a deepfake".
+- *The $0.5$ threshold is arbitrary.* $0.5$ is the Bayes-optimal cut
+  only under calibration *and* symmetric priors and costs. None hold:
+  training rebalanced batches to roughly equal classes with a
+  `WeightedRandomSampler`, the FF++ test pool is real-heavy per
+  method, the in-the-wild base rate of manipulation is low, and the
+  cost of a false accusation is not the cost of a missed fake. A
+  defensible operating point must be *selected on a held-out split* —
+  a target false-positive rate, Youden's $J$, or the equal-error rate
+  — not fixed at $0.5$.
+
+The consequence is a scoping rule, not a contradiction of any result.
+A single absolute score, and any binary verdict thresholded from it at
+$0.5$, is not a standalone claim; only the ranking (AUROC), the
+cross-model comparison, and the per-method / cross-dataset deltas are.
+The empirical chapter already obeys this rule — it is why every table
+reports AUROC and none reports accuracy at a fixed cut. The limitation
+is therefore on *deployment interpretation*: a near-threshold score,
+such as the $0.55$–$0.60$ band the demo produces on out-of-domain
+inputs, carries almost no information, and presenting it as a confident
+verdict overstates the model.
+
+The remedy is standard and is the natural calibration task for the
+next phase:
+
++ *Temperature scaling.* Fit a single scalar $T$ per model by
+  minimising negative log-likelihood on the FF++ validation split and
+  rescale the logit by $T$ before the sigmoid. The transform is
+  monotone, so every AUROC in this chapter is unchanged while the
+  probability axis becomes meaningful; reliability diagrams and the
+  expected calibration error on the validation split quantify it.
++ *Threshold selection.* Choose the decision threshold $tau$ on the
+  same validation split at a disclosed operating point and report the
+  in-domain and cross-dataset confusion at that $tau$ separately from
+  the rank metrics. Deployment then reports a calibrated probability
+  against a validated $tau$ rather than an uncalibrated $sigma(z)$
+  against $0.5$.
+
+Until that pass is run, the demo's verdict is provisional on this axis
+and is labelled as such in the interface; the comparative conclusions
+of this chapter are unaffected, because none of them ever depended on
+the absolute score scale or on the $0.5$ cut.
+
 == Outlook
 
 Phase 3 closes the empirical gap between the methodological pattern
