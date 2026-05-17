@@ -30,6 +30,60 @@ function Sparkline({ values, fake }: { values: number[]; fake: boolean }) {
   );
 }
 
+// Disagreement-aware fusion. Deliberately unweighted and pre-stated:
+// hand-tuned ensemble weights chosen from a few in-the-wild images are
+// not defensible. The per-model table remains the full diagnostic view;
+// this only decides what the headline says, and refuses to collapse to
+// one confident branch when the branches disagree.
+const SPREAD_UNCERTAIN = 0.45; // disclosed heuristic threshold, not tuned
+
+interface Decision {
+  state: "real" | "fake" | "uncertain" | "none";
+  pMean: number;
+  spread: number;
+  nScored: number;
+  votesReal: number;
+  votesFake: number;
+  dissentIds: string[];
+}
+
+function decide(models: ModelResult[]): Decision {
+  const scored = models.filter(
+    (m): m is ModelResult & { score: number } => m.score !== null,
+  );
+  const n = scored.length;
+  if (n === 0) {
+    return {
+      state: "none",
+      pMean: 0,
+      spread: 0,
+      nScored: 0,
+      votesReal: 0,
+      votesFake: 0,
+      dissentIds: [],
+    };
+  }
+  const ps = scored.map((m) => m.score);
+  const pMean = ps.reduce((a, b) => a + b, 0) / n;
+  const spread = Math.max(...ps) - Math.min(...ps);
+  const votesFake = ps.filter((p) => p >= 0.5).length;
+  const votesReal = n - votesFake;
+  const majority: "real" | "fake" =
+    votesFake > votesReal
+      ? "fake"
+      : votesReal > votesFake
+        ? "real"
+        : pMean >= 0.5
+          ? "fake"
+          : "real";
+  const dissentIds = scored
+    .filter((m) => (m.score >= 0.5 ? "fake" : "real") !== majority)
+    .map((m) => m.id);
+  const state =
+    n >= 2 && spread >= SPREAD_UNCERTAIN ? "uncertain" : majority;
+  return { state, pMean, spread, nScored: n, votesReal, votesFake, dissentIds };
+}
+
 function Head({ idx, title, meta }: { idx: string; title: string; meta: string }) {
   return (
     <div className="sec-head">
@@ -77,13 +131,8 @@ function Transform({ model }: { model: ModelResult }) {
 }
 
 export default function ResultView({ r }: { r: DetectResults }) {
-  // The most confident scored model drives the summary + the
-  // highlighted row. Confidence is in the verdict, not P(fake).
-  const scored = r.models.filter((m) => m.score !== null);
-  const top = scored.reduce<ModelResult | null>((best, m) => {
-    if (best === null) return m;
-    return confidence(m.score as number) > confidence(best.score as number) ? m : best;
-  }, null);
+  const d = decide(r.models);
+  const dissent = new Set(d.dissentIds);
   const isVideo = r.kind === "video";
   const frameNote = isVideo ? ` · mean-pooled over ${r.n_frames ?? 0} frames` : "";
 
@@ -132,12 +181,12 @@ export default function ResultView({ r }: { r: DetectResults }) {
             </thead>
             <tbody>
               {r.models.map((m) => {
-                const isTop = top?.id === m.id;
+                const isDissent = d.state === "uncertain" && dissent.has(m.id);
                 const conf = m.score === null ? null : confidence(m.score);
                 return (
                   <tr
                     key={m.id}
-                    className={isTop ? `is-peak ${m.verdict ?? ""}` : ""}
+                    className={isDissent ? "is-peak dissent" : ""}
                   >
                     <td className="m-name">
                       <span>{m.label}</span>
@@ -185,32 +234,54 @@ export default function ResultView({ r }: { r: DetectResults }) {
         <Head
           idx="05"
           title="Summary"
-          meta={isVideo ? "most confident · pooled" : "most confident model"}
+          meta={isVideo ? "consensus · pooled" : "model consensus"}
         />
-        {top && top.score !== null && top.verdict ? (
-          <div className={`peak ${top.verdict}`}>
-            <div className="peak-grid">
-              <div>
-                <div className="peak-label">Verdict · {top.label}</div>
-                <div className="peak-model">
-                  P(fake) {pct(top.score)} · confident this{" "}
-                  {isVideo ? "video" : "image"} is{" "}
-                  <b>{top.verdict === "fake" ? "a deepfake" : "real"}</b>
-                  {frameNote}
-                </div>
-              </div>
-              <div className={`peak-score ${top.verdict}`}>
-                {pct(confidence(top.score))}
-              </div>
-              <div className={`peak-verdict ${top.verdict}`}>
-                {top.verdict.toUpperCase()}
-              </div>
-            </div>
-          </div>
-        ) : (
+        {d.state === "none" && (
           <div className="peak none">
             <div className="peak-none">
               No calibrated score — only the heuristic (diagnostic-only) was run.
+            </div>
+          </div>
+        )}
+        {d.state === "uncertain" && (
+          <div className="peak uncertain">
+            <div className="peak-grid">
+              <div>
+                <div className="peak-label">Models disagree</div>
+                <div className="peak-model">
+                  {d.votesReal} real / {d.votesFake} fake · spread{" "}
+                  {pct(d.spread)} · mean P(fake) {pct(d.pMean)}
+                  {frameNote}. Single-model verdicts are not trustworthy
+                  here — see the per-model breakdown above.
+                </div>
+              </div>
+              <div className="peak-score uncertain">{pct(d.pMean)}</div>
+              <div className="peak-verdict uncertain">UNCERTAIN</div>
+            </div>
+          </div>
+        )}
+        {(d.state === "real" || d.state === "fake") && (
+          <div className={`peak ${d.state}`}>
+            <div className="peak-grid">
+              <div>
+                <div className="peak-label">
+                  Consensus ·{" "}
+                  {d.state === "fake" ? d.votesFake : d.votesReal} of{" "}
+                  {d.nScored} models
+                </div>
+                <div className="peak-model">
+                  mean P(fake) {pct(d.pMean)} · the models agree this{" "}
+                  {isVideo ? "video" : "image"} is{" "}
+                  <b>{d.state === "fake" ? "a deepfake" : "real"}</b>
+                  {frameNote}
+                </div>
+              </div>
+              <div className={`peak-score ${d.state}`}>
+                {pct(Math.max(d.pMean, 1 - d.pMean))}
+              </div>
+              <div className={`peak-verdict ${d.state}`}>
+                {d.state.toUpperCase()}
+              </div>
             </div>
           </div>
         )}
