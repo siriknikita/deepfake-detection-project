@@ -35,12 +35,13 @@ function Sparkline({ values, fake }: { values: number[]; fake: boolean }) {
 // not defensible. The per-model table remains the full diagnostic view;
 // this only decides the headline.
 //
-// "Disagreement" = the models split on the VERDICT (some real, some
-// fake). Spread in P(fake) magnitude among models that all land on the
-// same side of 0.5 is NOT disagreement — they agree on the answer.
-// A separate, disclosed near-boundary band flags genuinely low-margin
-// unanimous calls.
-const BOUNDARY_LO = 0.45; // disclosed band, not tuned
+// A hard 0.5 cut is brittle: P(fake) 0.549 and 0.999 are not the same
+// vote. Each model is classified with a disclosed dead-band — inside
+// [0.45, 0.55] the model is *undecided* (near-chance, abstains), not a
+// dissenter. "Disagreement" then means the CONFIDENT branches split
+// (some confidently real, some confidently fake); a near-chance model
+// no longer trips it.
+const BOUNDARY_LO = 0.45; // disclosed dead-band, not tuned
 const BOUNDARY_HI = 0.55;
 
 interface Decision {
@@ -48,8 +49,10 @@ interface Decision {
   reason: "consensus" | "split" | "borderline" | "none";
   pMean: number;
   nScored: number;
-  votesReal: number;
-  votesFake: number;
+  confReal: number;
+  confFake: number;
+  undecided: number;
+  undecidedLabels: string[];
   dissentIds: string[];
 }
 
@@ -58,47 +61,51 @@ function decide(models: ModelResult[]): Decision {
     (m): m is ModelResult & { score: number } => m.score !== null,
   );
   const n = scored.length;
-  if (n === 0) {
-    return {
-      state: "none",
-      reason: "none",
-      pMean: 0,
-      nScored: 0,
-      votesReal: 0,
-      votesFake: 0,
-      dissentIds: [],
-    };
-  }
-  const ps = scored.map((m) => m.score);
-  const pMean = ps.reduce((a, b) => a + b, 0) / n;
-  const votesFake = ps.filter((p) => p >= 0.5).length;
-  const votesReal = n - votesFake;
-  const verdict: "real" | "fake" =
-    votesFake > votesReal
-      ? "fake"
-      : votesReal > votesFake
-        ? "real"
-        : pMean >= 0.5
-          ? "fake"
-          : "real";
+  const empty = {
+    pMean: 0,
+    nScored: n,
+    confReal: 0,
+    confFake: 0,
+    undecided: 0,
+    undecidedLabels: [] as string[],
+    dissentIds: [] as string[],
+  };
+  if (n === 0) return { state: "none", reason: "none", ...empty };
+
+  const pMean = scored.reduce((a, m) => a + m.score, 0) / n;
+  const vote = (s: number): "real" | "fake" | "undecided" =>
+    s >= BOUNDARY_HI ? "fake" : s <= BOUNDARY_LO ? "real" : "undecided";
+
+  const confFakeIds = scored.filter((m) => vote(m.score) === "fake");
+  const confRealIds = scored.filter((m) => vote(m.score) === "real");
+  const undecidedM = scored.filter((m) => vote(m.score) === "undecided");
   const base = {
     pMean,
     nScored: n,
-    votesReal,
-    votesFake,
+    confReal: confRealIds.length,
+    confFake: confFakeIds.length,
+    undecided: undecidedM.length,
+    undecidedLabels: undecidedM.map((m) => m.label),
   };
 
-  // Genuine disagreement: the verdicts split.
-  if (votesFake > 0 && votesReal > 0) {
-    const dissentIds = scored
-      .filter((m) => (m.score >= 0.5 ? "fake" : "real") !== verdict)
-      .map((m) => m.id);
-    return { state: "uncertain", reason: "split", ...base, dissentIds };
+  // Confident branches split on the verdict — genuine disagreement.
+  if (confFakeIds.length > 0 && confRealIds.length > 0) {
+    const minoritySide =
+      confFakeIds.length <= confRealIds.length ? confFakeIds : confRealIds;
+    return {
+      state: "uncertain",
+      reason: "split",
+      ...base,
+      dissentIds: minoritySide.map((m) => m.id),
+    };
   }
-  // Unanimous verdict, but the ensemble sits on the decision boundary.
-  if (pMean >= BOUNDARY_LO && pMean <= BOUNDARY_HI) {
+  // Nobody commits — the whole ensemble sits in the indecision band.
+  if (confFakeIds.length === 0 && confRealIds.length === 0) {
     return { state: "uncertain", reason: "borderline", ...base, dissentIds: [] };
   }
+  // One confident side, the rest (if any) undecided → consensus of the
+  // committed models.
+  const verdict = confFakeIds.length > 0 ? "fake" : "real";
   return { state: verdict, reason: "consensus", ...base, dissentIds: [] };
 }
 
@@ -268,22 +275,27 @@ export default function ResultView({ r }: { r: DetectResults }) {
                 <div className="peak-label">
                   {d.reason === "split"
                     ? "Models disagree"
-                    : "Near decision boundary"}
+                    : "No branch commits"}
                 </div>
                 <div className="peak-model">
                   {d.reason === "split" ? (
                     <>
-                      {d.votesReal} real / {d.votesFake} fake · mean P(fake){" "}
-                      {pct(d.pMean)}
-                      {frameNote}. The branches split on the verdict —
-                      single-model verdicts are not trustworthy here; see
-                      the per-model breakdown above.
+                      {d.confReal} confidently real / {d.confFake} confidently
+                      fake
+                      {d.undecided > 0
+                        ? ` · ${d.undecided} undecided`
+                        : ""}{" "}
+                      · mean P(fake) {pct(d.pMean)}
+                      {frameNote}. The confident branches split on the
+                      verdict — single-model verdicts are not trustworthy
+                      here; see the per-model breakdown above.
                     </>
                   ) : (
                     <>
-                      All {d.nScored} models agree, but the ensemble mean
-                      P(fake) {pct(d.pMean)} sits on the decision boundary
-                      {frameNote}. Treat this as a low-confidence call.
+                      All {d.nScored} models fall inside the{" "}
+                      {pct(BOUNDARY_LO)}–{pct(BOUNDARY_HI)} indecision band
+                      (mean P(fake) {pct(d.pMean)}){frameNote}. No branch
+                      commits — treat as undecided.
                     </>
                   )}
                 </div>
@@ -299,12 +311,15 @@ export default function ResultView({ r }: { r: DetectResults }) {
               <div>
                 <div className="peak-label">
                   Consensus ·{" "}
-                  {d.state === "fake" ? d.votesFake : d.votesReal} of{" "}
+                  {d.state === "fake" ? d.confFake : d.confReal} of{" "}
                   {d.nScored} models
+                  {d.undecided > 0
+                    ? ` (${d.undecidedLabels.join(", ")} undecided)`
+                    : ""}
                 </div>
                 <div className="peak-model">
-                  mean P(fake) {pct(d.pMean)} · the models agree this{" "}
-                  {isVideo ? "video" : "image"} is{" "}
+                  mean P(fake) {pct(d.pMean)} · the committed models agree
+                  this {isVideo ? "video" : "image"} is{" "}
                   <b>{d.state === "fake" ? "a deepfake" : "real"}</b>
                   {frameNote}
                 </div>
