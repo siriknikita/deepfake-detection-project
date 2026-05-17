@@ -374,9 +374,9 @@ export default function ResultView({ r }: { r: DetectResults }) {
                     : ""}
                 </div>
                 <div className="peak-model">
-                  mean P(fake) {pct(d.pMean)} · the committed models agree
-                  this {isVideo ? "video" : "image"} is{" "}
-                  <b>{d.state === "fake" ? "a deepfake" : "real"}</b>
+                  mean P(fake) {pct(d.pMean)} · the committed models lean{" "}
+                  <b>{d.state === "fake" ? "fake" : "real"}</b> at the
+                  provisional 0.5 threshold
                   {frameNote}
                   {maxNote}
                 </div>
@@ -391,6 +391,14 @@ export default function ResultView({ r }: { r: DetectResults }) {
           </div>
             )}
           </>
+        )}
+        {!faceUnusable && d.state !== "none" && (
+          <p className="peak-caveat">
+            Scores are uncalibrated ranker outputs; the 0.5 cut is a
+            provisional placeholder, not a validated decision threshold.
+            The absolute % is not a deepfake probability — only relative
+            comparison across models and rank / AUROC are meaningful.
+          </p>
         )}
       </div>
     </div>
