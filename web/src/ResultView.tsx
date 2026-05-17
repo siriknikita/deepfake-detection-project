@@ -33,14 +33,20 @@ function Sparkline({ values, fake }: { values: number[]; fake: boolean }) {
 // Disagreement-aware fusion. Deliberately unweighted and pre-stated:
 // hand-tuned ensemble weights chosen from a few in-the-wild images are
 // not defensible. The per-model table remains the full diagnostic view;
-// this only decides what the headline says, and refuses to collapse to
-// one confident branch when the branches disagree.
-const SPREAD_UNCERTAIN = 0.45; // disclosed heuristic threshold, not tuned
+// this only decides the headline.
+//
+// "Disagreement" = the models split on the VERDICT (some real, some
+// fake). Spread in P(fake) magnitude among models that all land on the
+// same side of 0.5 is NOT disagreement — they agree on the answer.
+// A separate, disclosed near-boundary band flags genuinely low-margin
+// unanimous calls.
+const BOUNDARY_LO = 0.45; // disclosed band, not tuned
+const BOUNDARY_HI = 0.55;
 
 interface Decision {
   state: "real" | "fake" | "uncertain" | "none";
+  reason: "consensus" | "split" | "borderline" | "none";
   pMean: number;
-  spread: number;
   nScored: number;
   votesReal: number;
   votesFake: number;
@@ -55,8 +61,8 @@ function decide(models: ModelResult[]): Decision {
   if (n === 0) {
     return {
       state: "none",
+      reason: "none",
       pMean: 0,
-      spread: 0,
       nScored: 0,
       votesReal: 0,
       votesFake: 0,
@@ -65,10 +71,9 @@ function decide(models: ModelResult[]): Decision {
   }
   const ps = scored.map((m) => m.score);
   const pMean = ps.reduce((a, b) => a + b, 0) / n;
-  const spread = Math.max(...ps) - Math.min(...ps);
   const votesFake = ps.filter((p) => p >= 0.5).length;
   const votesReal = n - votesFake;
-  const majority: "real" | "fake" =
+  const verdict: "real" | "fake" =
     votesFake > votesReal
       ? "fake"
       : votesReal > votesFake
@@ -76,12 +81,25 @@ function decide(models: ModelResult[]): Decision {
         : pMean >= 0.5
           ? "fake"
           : "real";
-  const dissentIds = scored
-    .filter((m) => (m.score >= 0.5 ? "fake" : "real") !== majority)
-    .map((m) => m.id);
-  const state =
-    n >= 2 && spread >= SPREAD_UNCERTAIN ? "uncertain" : majority;
-  return { state, pMean, spread, nScored: n, votesReal, votesFake, dissentIds };
+  const base = {
+    pMean,
+    nScored: n,
+    votesReal,
+    votesFake,
+  };
+
+  // Genuine disagreement: the verdicts split.
+  if (votesFake > 0 && votesReal > 0) {
+    const dissentIds = scored
+      .filter((m) => (m.score >= 0.5 ? "fake" : "real") !== verdict)
+      .map((m) => m.id);
+    return { state: "uncertain", reason: "split", ...base, dissentIds };
+  }
+  // Unanimous verdict, but the ensemble sits on the decision boundary.
+  if (pMean >= BOUNDARY_LO && pMean <= BOUNDARY_HI) {
+    return { state: "uncertain", reason: "borderline", ...base, dissentIds: [] };
+  }
+  return { state: verdict, reason: "consensus", ...base, dissentIds: [] };
 }
 
 function Head({ idx, title, meta }: { idx: string; title: string; meta: string }) {
@@ -247,12 +265,27 @@ export default function ResultView({ r }: { r: DetectResults }) {
           <div className="peak uncertain">
             <div className="peak-grid">
               <div>
-                <div className="peak-label">Models disagree</div>
+                <div className="peak-label">
+                  {d.reason === "split"
+                    ? "Models disagree"
+                    : "Near decision boundary"}
+                </div>
                 <div className="peak-model">
-                  {d.votesReal} real / {d.votesFake} fake · spread{" "}
-                  {pct(d.spread)} · mean P(fake) {pct(d.pMean)}
-                  {frameNote}. Single-model verdicts are not trustworthy
-                  here — see the per-model breakdown above.
+                  {d.reason === "split" ? (
+                    <>
+                      {d.votesReal} real / {d.votesFake} fake · mean P(fake){" "}
+                      {pct(d.pMean)}
+                      {frameNote}. The branches split on the verdict —
+                      single-model verdicts are not trustworthy here; see
+                      the per-model breakdown above.
+                    </>
+                  ) : (
+                    <>
+                      All {d.nScored} models agree, but the ensemble mean
+                      P(fake) {pct(d.pMean)} sits on the decision boundary
+                      {frameNote}. Treat this as a low-confidence call.
+                    </>
+                  )}
                 </div>
               </div>
               <div className="peak-score uncertain">{pct(d.pMean)}</div>
