@@ -554,6 +554,7 @@ deepfake-detection-v2/
 │   ├── train_physics_cnn.py        # n-channel physics/frequency training (--channels)
 │   ├── eval_per_method.py          # per-method FF++ test breakdown
 │   ├── eval_celebdf.py             # cross-dataset Celeb-DF v2 evaluation
+│   ├── in_the_wild_eval.py         # disclosed in-the-wild FP-rate / AUROC probe
 │   ├── overnight_run.sh            # end-to-end pipeline runner (4 stages, ~2 h)
 │   ├── diagnose_baseline.py        # 30-step overfit test for training infra
 │   ├── oracle_phase1.py            # Phase 1 oracle ablation (GT-mask trust map)

@@ -592,6 +592,32 @@ def infer_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
     return _analyse_crop(specs, crop_rgb, face_found)
 
 
+def score_image(image_bytes: bytes, model_ids: list[str]) -> dict[str, object]:
+    """Lightweight per-model score for one image — no visualisations.
+
+    Intended for batch / offline evaluation (e.g.
+    ``scripts/in_the_wild_eval.py``) where the base64 figures rendered by
+    :func:`infer_image` would dominate the runtime. Heuristic models have
+    no calibrated score and report ``None``.
+
+    Returns ``{"face_detected": bool, "models": {id: {"score": float|None,
+    "verdict": "fake"|"real"|None}}}``.
+    """
+    specs = _resolve_model_ids(model_ids)
+    pil = _decode_image(image_bytes)
+    crop_rgb, face_found = _face_crop(pil)
+    cnn_scores = _score_crop(specs, crop_rgb)
+
+    models: dict[str, object] = {}
+    for spec in specs:
+        sc = cnn_scores.get(spec.id) if spec.kind == "cnn" else None
+        models[spec.id] = {
+            "score": sc,
+            "verdict": (None if sc is None else ("fake" if sc >= 0.5 else "real")),
+        }
+    return {"face_detected": face_found, "models": models}
+
+
 # --------------------------------------------------------------------------- #
 # Video — sampled frames, per-frame scoring, mean-pooled verdict
 # --------------------------------------------------------------------------- #
@@ -747,4 +773,5 @@ __all__ = [
     "infer_image",
     "infer_video",
     "list_models",
+    "score_image",
 ]
