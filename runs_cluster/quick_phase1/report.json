@@ -1,0 +1,58 @@
+{
+  "phase": "phase-1 heuristic + classifier",
+  "args": {
+    "data_root": "/root/data/FaceForensics++",
+    "dataset": "face-forensics",
+    "fake_dir": null,
+    "compression": "c23",
+    "celeb_testing_list": false,
+    "frames_per_video_train": 30,
+    "frames_per_video_eval": 10,
+    "image_size": 256,
+    "device": "cuda",
+    "n_scales": 3,
+    "max_iter": 200,
+    "runs_dir": "/root/runs/quick_phase1",
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "seed": 0,
+    "classifier_checkpoint": null
+  },
+  "elapsed_seconds": 17196.430344343185,
+  "n_videos": {
+    "train": 1400,
+    "val": 300,
+    "test": 300
+  },
+  "n_frames": {
+    "train": 124227,
+    "val": 8160,
+    "test": 8540
+  },
+  "val": {
+    "frame_auroc": 0.3459514576981707,
+    "frame_accuracy": 0.8023284313725491,
+    "video_auroc_mean": 0.31951219512195117,
+    "video_auroc_max": 0.42444740853658536,
+    "n_videos": 324
+  },
+  "test": {
+    "frame_auroc": 0.37808659352991253,
+    "frame_accuracy": 0.818384074941452,
+    "video_auroc_mean": 0.3466449965172974,
+    "video_auroc_max": 0.47776874854887397,
+    "n_videos": 323,
+    "top_features": {
+      "R_mean": 0.12093144399019866,
+      "E_decrease_first_decile": 0.08233478426599083,
+      "E_smoothness_ratio": 0.08081255684869346,
+      "L_spectral_entropy": 0.07086830347366968,
+      "absL_p99": 0.07056004954052111,
+      "R_p99": 0.07047896399804418,
+      "R_std": 0.06681583285417969,
+      "E_data": 0.0622733613098192,
+      "E_consistency": 0.056705736761713324,
+      "E_consistency_ratio": 0.056475387996418255
+    }
+  }
+}

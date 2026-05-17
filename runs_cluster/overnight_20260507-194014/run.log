@@ -1,0 +1,62 @@
+========================================================================
+[19:40:14] Overnight FF++ pipeline run
+[19:40:14]   DATA_ROOT=/root/data/FaceForensics++
+[19:40:14]   RUNS_DIR=runs  LOG_DIR=runs/overnight_20260507-194014
+[19:40:14]   DEVICE=cuda  EPOCHS=20  LR=2e-4
+[19:40:14]   FRAMES_PER_VIDEO=10  IMAGE_SIZE=256  MARGIN=0.3
+[19:40:14] starting disk state on /root/data/FaceForensics++:
+    Filesystem                        Size  Used Avail Use% Mounted on
+    /dev/mapper/pve-vm--129--disk--0   49G   28G   19G  61% /
+========================================================================
+[19:40:14] >>> START  00-uv-sync
+[19:40:14]     log: runs/overnight_20260507-194014/00-uv-sync.log
+[19:40:14]     cmd: uv sync
+[19:40:14] >>> OK     00-uv-sync (0s)
+========================================================================
+[19:40:14] >>> START  01-extract-faces
+[19:40:14]     log: runs/overnight_20260507-194014/01-extract-faces.log
+[19:40:14]     cmd: uv run python scripts/extract_faces.py --data-root /root/data/FaceForensics++ --dataset face-forensics --compression c23 --output-size 256 --margin 0.3 --max-frames-per-video 10 --device cuda
+[19:40:17] >>> OK     01-extract-faces (3s)
+========================================================================
+[19:40:17] >>> CLEANUP  removing obsolete full-frame physics_<variant>/ caches
+[19:40:17] >>> CLEANUP  done (freed approximately 0 GB)
+[19:40:17] post-cleanup disk state:
+    Filesystem                        Size  Used Avail Use% Mounted on
+    /dev/mapper/pve-vm--129--disk--0   49G   28G   19G  61% /
+[19:40:17]     wiping previous runs/baseline_3ch_faces (KEEP_RUNS=1 to preserve)
+========================================================================
+[19:40:17] >>> START  02-baseline-3ch
+[19:40:17]     log: runs/overnight_20260507-194014/02-baseline-3ch.log
+[19:40:17]     cmd: uv run python scripts/pivot_study.py --data-root /root/data/FaceForensics++ --baselines pure-cnn --frames-per-video-train 10 --frames-per-video-eval 10 --epochs 20 --runs-dir runs/baseline_3ch_faces --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+[19:41:28] >>> FAIL   02-baseline-3ch (exit=1) after 71s
+[19:41:28] --- last 30 lines of runs/overnight_20260507-194014/02-baseline-3ch.log ---
+      File "/root/deepfake-detection-v2/python/forge_detect/baseline_cnn.py", line 314, in _epoch_pass
+        for images, labels in loader:
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 701, in __next__
+        data = self._next_data()
+               ^^^^^^^^^^^^^^^^^
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 1465, in _next_data
+        return self._process_data(data)
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/utils/data/dataloader.py", line 1491, in _process_data
+        data.reraise()
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/_utils.py", line 715, in reraise
+        raise exception
+    PIL.UnidentifiedImageError: Caught UnidentifiedImageError in DataLoader worker process 1.
+    Original Traceback (most recent call last):
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/utils/data/_utils/worker.py", line 351, in _worker_loop
+        data = fetcher.fetch(index)  # type: ignore[possibly-undefined]
+               ^^^^^^^^^^^^^^^^^^^^
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/torch/utils/data/_utils/fetch.py", line 52, in fetch
+        data = [self.dataset[idx] for idx in possibly_batched_index]
+                ~~~~~~~~~~~~^^^^^
+      File "/root/deepfake-detection-v2/python/forge_detect/datasets.py", line 405, in __getitem__
+        arr = load_image_chw(rec.image_path, self.target_size)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      File "/root/deepfake-detection-v2/python/forge_detect/datasets.py", line 173, in load_image_chw
+        img = Image.open(path).convert("RGB")
+              ^^^^^^^^^^^^^^^^
+      File "/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/PIL/Image.py", line 3711, in open
+        raise UnidentifiedImageError(msg)
+    PIL.UnidentifiedImageError: cannot identify image file '/root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames_faces/566_617/0049.png'
+    

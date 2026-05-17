@@ -1,0 +1,18 @@
+usage: train_physics_cnn.py [-h] --data-root DATA_ROOT
+                            [--celeb-data-root CELEB_DATA_ROOT]
+                            [--compression {raw,c23,c40}]
+                            [--variant {heuristic,gtmask}]
+                            [--frames-per-video-train FRAMES_PER_VIDEO_TRAIN]
+                            [--frames-per-video-eval FRAMES_PER_VIDEO_EVAL]
+                            [--seed SEED] [--val-fraction VAL_FRACTION]
+                            [--test-fraction TEST_FRACTION]
+                            [--image-size IMAGE_SIZE] [--epochs EPOCHS]
+                            [--batch-size BATCH_SIZE]
+                            [--learning-rate LEARNING_RATE]
+                            [--weight-decay WEIGHT_DECAY] [--amp]
+                            [--no-balance] [--no-augment] [--freeze-bn]
+                            [--use-ff-splits] [--use-face-crops]
+                            [--device {auto,cpu,cuda,mps}]
+                            [--num-workers NUM_WORKERS] [--no-pretrained]
+                            --runs-dir RUNS_DIR [--skip-train]
+train_physics_cnn.py: error: unrecognized arguments: --lr 2e-4

@@ -1,0 +1,16 @@
+{
+  "model": "physics",
+  "weights": "runs/physics_6ch_faces_heuristic/best.pt",
+  "celeb_data_root": "/Users/mykytasiryk/Development/personal-projects/datasets/Celeb-DF-v2",
+  "use_face_crops": true,
+  "accuracy": 0.556949806949807,
+  "n_real": 1780.0,
+  "n_fake": 3400.0,
+  "auroc": 0.5382331460674157,
+  "video_auroc_mean": 0.5458195637805685,
+  "video_auroc_max": 0.5541969596827496,
+  "video_accuracy_mean": 0.5888030888030888,
+  "n_videos": 518.0,
+  "n_video_real": 178.0,
+  "n_video_fake": 340.0
+}

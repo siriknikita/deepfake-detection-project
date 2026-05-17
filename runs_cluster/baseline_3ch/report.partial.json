@@ -1,0 +1,48 @@
+{
+  "baselines": {
+    "pure_cnn": {
+      "accuracy": 0.7897142857142857,
+      "n_real": 1400.0,
+      "n_fake": 5600.0,
+      "auroc": 0.4968325255102041,
+      "video_auroc_mean": 0.4966836734693877,
+      "video_auroc_max": 0.5148979591836735,
+      "video_accuracy_mean": 0.5,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0,
+      "train_seconds": 1545.5763239860535,
+      "run_dir": "runs/baseline_3ch/baseline_run"
+    }
+  },
+  "args": {
+    "data_root": "/root/data/FaceForensics++",
+    "dataset": "face-forensics",
+    "fake_dir": null,
+    "compression": "c23",
+    "celeb_testing_list": false,
+    "frames_per_video_train": 10,
+    "frames_per_video_eval": 10,
+    "image_size": 256,
+    "epochs": 20,
+    "batch_size": 16,
+    "device": "cuda",
+    "cnn_device": "auto",
+    "num_workers": 4,
+    "no_pretrained": false,
+    "n_scales": 4,
+    "max_iter": 300,
+    "runs_dir": "runs/baseline_3ch",
+    "output": null,
+    "seed": 0,
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "lr": 0.0001,
+    "amp": false,
+    "no_balance": false,
+    "no_augment": false,
+    "freeze_bn": false,
+    "use_ff_splits": true,
+    "baselines": "pure-cnn"
+  }
+}

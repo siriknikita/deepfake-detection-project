@@ -1,0 +1,106 @@
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:34: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:79: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:132: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+[extract-faces] data_root = /root/data/FaceForensics++
+[extract-faces] dataset = face-forensics
+[extract-faces] crop = 256x256, margin = 0.3
+[extract-faces] device = cuda
+[extract-faces] cap = 10 frames/video (stride-sampled to match adapter)
+
+[extract-faces] /root/data/FaceForensics++/original_sequences/youtube/c23/frames -> /root/data/FaceForensics++/original_sequences/youtube/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/Deepfakes/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/Deepfakes/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/Face2Face/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/Face2Face/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames_faces
+  [  5800] face=70 (100%) fallback=0 skipped=5730 failed=0  33.1 img/s
+  [  6000] face=269 (100%) fallback=1 skipped=5730 failed=0  40.5 img/s
+  [  6200] face=467 (99%) fallback=3 skipped=5730 failed=0  41.2 img/s
+  [  6400] face=667 (100%) fallback=3 skipped=5730 failed=0  41.2 img/s
+  [  6600] face=863 (99%) fallback=7 skipped=5730 failed=0  41.5 img/s
+  [  6800] face=1063 (99%) fallback=7 skipped=5730 failed=0  41.7 img/s
+  [  7000] face=1263 (99%) fallback=7 skipped=5730 failed=0  41.9 img/s
+  [  7200] face=1459 (99%) fallback=11 skipped=5730 failed=0  42.1 img/s
+  [  7400] face=1659 (99%) fallback=11 skipped=5730 failed=0  42.1 img/s
+  [  7600] face=1857 (99%) fallback=13 skipped=5730 failed=0  42.3 img/s
+  [  7800] face=2057 (99%) fallback=13 skipped=5730 failed=0  42.3 img/s
+  [  8000] face=2249 (99%) fallback=21 skipped=5730 failed=0  42.3 img/s
+  [  8200] face=2449 (99%) fallback=21 skipped=5730 failed=0  42.3 img/s
+  [  8400] face=2640 (99%) fallback=30 skipped=5730 failed=0  42.2 img/s
+  [  8600] face=2839 (99%) fallback=31 skipped=5730 failed=0  42.3 img/s
+  [  8800] face=3039 (99%) fallback=31 skipped=5730 failed=0  42.4 img/s
+  [  9000] face=3238 (99%) fallback=32 skipped=5730 failed=0  42.4 img/s
+  [  9200] face=3438 (99%) fallback=32 skipped=5730 failed=0  42.5 img/s
+  [  9400] face=3638 (99%) fallback=32 skipped=5730 failed=0  42.5 img/s
+  [  9600] face=3837 (99%) fallback=33 skipped=5730 failed=0  42.5 img/s
+  [  9800] face=4035 (99%) fallback=35 skipped=5730 failed=0  42.5 img/s
+  [ 10000] face=4235 (99%) fallback=35 skipped=5730 failed=0  42.5 img/s
+  4235/10000 faces detected, 35 fallback, 5730 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/NeuralTextures/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/NeuralTextures/c23/frames_faces
+  [   200] face=200 (100%) fallback=0 skipped=0 failed=0  42.5 img/s
+  [   400] face=400 (100%) fallback=0 skipped=0 failed=0  42.8 img/s
+  [   600] face=595 (99%) fallback=5 skipped=0 failed=0  43.1 img/s
+  [   800] face=794 (99%) fallback=6 skipped=0 failed=0  43.0 img/s
+  [  1000] face=994 (99%) fallback=6 skipped=0 failed=0  43.1 img/s
+  [  1200] face=1193 (99%) fallback=7 skipped=0 failed=0  43.0 img/s
+  [  1400] face=1393 (100%) fallback=7 skipped=0 failed=0  43.0 img/s
+  [  1600] face=1593 (100%) fallback=7 skipped=0 failed=0  43.0 img/s
+  [  1800] face=1788 (99%) fallback=12 skipped=0 failed=0  43.0 img/s
+  [  2000] face=1988 (99%) fallback=12 skipped=0 failed=0  43.0 img/s
+  [  2200] face=2188 (99%) fallback=12 skipped=0 failed=0  43.1 img/s
+  [  2400] face=2388 (100%) fallback=12 skipped=0 failed=0  43.2 img/s
+  [  2600] face=2588 (100%) fallback=12 skipped=0 failed=0  43.3 img/s
+  [  2800] face=2788 (100%) fallback=12 skipped=0 failed=0  43.3 img/s
+  [  3000] face=2984 (99%) fallback=16 skipped=0 failed=0  43.4 img/s
+  [  3200] face=3184 (100%) fallback=16 skipped=0 failed=0  43.4 img/s
+  [  3400] face=3384 (100%) fallback=16 skipped=0 failed=0  43.4 img/s
+  [  3600] face=3583 (100%) fallback=17 skipped=0 failed=0  43.4 img/s
+  [  3800] face=3782 (100%) fallback=18 skipped=0 failed=0  43.3 img/s
+  [  4000] face=3979 (99%) fallback=21 skipped=0 failed=0  43.4 img/s
+  [  4200] face=4179 (100%) fallback=21 skipped=0 failed=0  43.3 img/s
+  [  4400] face=4378 (100%) fallback=22 skipped=0 failed=0  43.3 img/s
+  [  4600] face=4578 (100%) fallback=22 skipped=0 failed=0  43.4 img/s
+  [  4800] face=4778 (100%) fallback=22 skipped=0 failed=0  43.3 img/s
+  [  5000] face=4978 (100%) fallback=22 skipped=0 failed=0  43.4 img/s
+  [  5200] face=5177 (100%) fallback=23 skipped=0 failed=0  43.3 img/s
+  [  5400] face=5374 (100%) fallback=26 skipped=0 failed=0  43.4 img/s
+  [  5600] face=5573 (100%) fallback=27 skipped=0 failed=0  43.4 img/s
+  [  5800] face=5772 (100%) fallback=28 skipped=0 failed=0  43.3 img/s
+  [  6000] face=5971 (100%) fallback=29 skipped=0 failed=0  43.4 img/s
+  [  6200] face=6168 (99%) fallback=32 skipped=0 failed=0  43.3 img/s
+  [  6400] face=6368 (100%) fallback=32 skipped=0 failed=0  43.3 img/s
+  [  6600] face=6567 (100%) fallback=33 skipped=0 failed=0  43.3 img/s
+  [  6800] face=6767 (100%) fallback=33 skipped=0 failed=0  43.3 img/s
+  [  7000] face=6967 (100%) fallback=33 skipped=0 failed=0  43.3 img/s
+  [  7200] face=7167 (100%) fallback=33 skipped=0 failed=0  43.3 img/s
+  [  7400] face=7366 (100%) fallback=34 skipped=0 failed=0  43.2 img/s
+  [  7600] face=7566 (100%) fallback=34 skipped=0 failed=0  43.2 img/s
+  [  7800] face=7766 (100%) fallback=34 skipped=0 failed=0  43.2 img/s
+  [  8000] face=7965 (100%) fallback=35 skipped=0 failed=0  43.2 img/s
+  [  8200] face=8160 (100%) fallback=40 skipped=0 failed=0  43.2 img/s
+  [  8400] face=8360 (100%) fallback=40 skipped=0 failed=0  43.2 img/s
+  [  8600] face=8560 (100%) fallback=40 skipped=0 failed=0  43.2 img/s
+  [  8800] face=8760 (100%) fallback=40 skipped=0 failed=0  43.2 img/s
+  [  9000] face=8959 (100%) fallback=41 skipped=0 failed=0  43.2 img/s
+  [  9200] face=9155 (100%) fallback=45 skipped=0 failed=0  43.2 img/s
+  [  9400] face=9353 (100%) fallback=47 skipped=0 failed=0  43.2 img/s
+  [  9600] face=9553 (100%) fallback=47 skipped=0 failed=0  43.2 img/s
+  [  9800] face=9753 (100%) fallback=47 skipped=0 failed=0  43.1 img/s
+  [ 10000] face=9953 (100%) fallback=47 skipped=0 failed=0  43.1 img/s
+  9953/10000 faces detected, 47 fallback, 0 skipped, 0 failed
+
+=== summary ===
+  total: 50000
+  face_detected: 14188
+  fallback_used: 82
+  skipped: 35730
+  failed: 0
+  face detection rate: 99.4%

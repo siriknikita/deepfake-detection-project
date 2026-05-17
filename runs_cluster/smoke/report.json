@@ -1,0 +1,58 @@
+{
+  "phase": "phase-1 heuristic + classifier",
+  "args": {
+    "data_root": "/root/data/FaceForensics++",
+    "dataset": "face-forensics",
+    "fake_dir": null,
+    "compression": "c23",
+    "celeb_testing_list": false,
+    "frames_per_video_train": 1,
+    "frames_per_video_eval": 1,
+    "image_size": 256,
+    "device": "cuda",
+    "n_scales": 2,
+    "max_iter": 20,
+    "runs_dir": "/root/runs/smoke",
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "seed": 0,
+    "classifier_checkpoint": null
+  },
+  "elapsed_seconds": 184.20819568634033,
+  "n_videos": {
+    "train": 1400,
+    "val": 300,
+    "test": 300
+  },
+  "n_frames": {
+    "train": 4142,
+    "val": 816,
+    "test": 854
+  },
+  "val": {
+    "frame_auroc": 0.4546446265243903,
+    "frame_accuracy": 0.803921568627451,
+    "video_auroc_mean": 0.4490853658536585,
+    "video_auroc_max": 0.5872522865853659,
+    "n_videos": 324
+  },
+  "test": {
+    "frame_auroc": 0.3918717591517684,
+    "frame_accuracy": 0.8208430913348946,
+    "video_auroc_mean": 0.36974692361272343,
+    "video_auroc_max": 0.525365683770606,
+    "n_videos": 323,
+    "top_features": {
+      "E_smoothness_ratio": 0.12284222520562614,
+      "L_spectral_entropy": 0.10684633666805224,
+      "E_decrease_first_decile": 0.10289588731068383,
+      "absL_p95": 0.07653672827391876,
+      "R_mean": 0.07508706234366196,
+      "R_p99": 0.07126629121546309,
+      "E_consistency": 0.06989843780332966,
+      "E_data": 0.06211376021074569,
+      "E_consistency_ratio": 0.050100347941363595,
+      "R_std": 0.04439590068599224
+    }
+  }
+}

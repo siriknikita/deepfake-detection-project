@@ -1,0 +1,33 @@
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:34: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:79: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+/root/deepfake-detection-v2/.venv/lib/python3.12/site-packages/facenet_pytorch/models/mtcnn.py:132: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state_dict = torch.load(state_dict_path)
+[extract-faces] data_root = /root/data/FaceForensics++
+[extract-faces] dataset = face-forensics
+[extract-faces] crop = 256x256, margin = 0.3
+[extract-faces] device = cuda
+[extract-faces] cap = 10 frames/video (stride-sampled to match adapter)
+
+[extract-faces] /root/data/FaceForensics++/original_sequences/youtube/c23/frames -> /root/data/FaceForensics++/original_sequences/youtube/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/Deepfakes/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/Deepfakes/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/Face2Face/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/Face2Face/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+[extract-faces] /root/data/FaceForensics++/manipulated_sequences/NeuralTextures/c23/frames -> /root/data/FaceForensics++/manipulated_sequences/NeuralTextures/c23/frames_faces
+  0/10000 faces detected, 0 fallback, 10000 skipped, 0 failed
+
+=== summary ===
+  total: 50000
+  face_detected: 0
+  fallback_used: 0
+  skipped: 50000
+  failed: 0

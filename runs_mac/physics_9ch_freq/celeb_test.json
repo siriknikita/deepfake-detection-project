@@ -1,0 +1,16 @@
+{
+  "model": "physics",
+  "weights": "runs/physics_9ch_freq/last.pt",
+  "celeb_data_root": "/Users/mykytasiryk/Development/personal-projects/datasets/Celeb-DF-v2",
+  "use_face_crops": true,
+  "accuracy": 0.6301158301158302,
+  "n_real": 1780.0,
+  "n_fake": 3400.0,
+  "auroc": 0.5609146563119629,
+  "video_auroc_mean": 0.6095175148711169,
+  "video_auroc_max": 0.5629048248512889,
+  "video_accuracy_mean": 0.6621621621621622,
+  "n_videos": 518.0,
+  "n_video_real": 178.0,
+  "n_video_fake": 340.0
+}

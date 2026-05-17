@@ -1,0 +1,65 @@
+========================================================================
+[06:13:30] Overnight FF++ pipeline run
+[06:13:30]   DATA_ROOT=/root/data/FaceForensics++
+[06:13:30]   RUNS_DIR=runs  LOG_DIR=runs/overnight_20260508-061330
+[06:13:30]   DEVICE=cuda  EPOCHS=20  LR=2e-4
+[06:13:30]   FRAMES_PER_VIDEO=10  IMAGE_SIZE=256  MARGIN=0.3
+[06:13:30] starting disk state on /root/data/FaceForensics++:
+    Filesystem                        Size  Used Avail Use% Mounted on
+    /dev/mapper/pve-vm--129--disk--0   49G   28G   19G  61% /
+========================================================================
+[06:13:30] >>> START  00-uv-sync
+[06:13:30]     log: runs/overnight_20260508-061330/00-uv-sync.log
+[06:13:30]     cmd: uv sync
+[06:13:30] >>> OK     00-uv-sync (0s)
+========================================================================
+[06:13:30] >>> START  01a-verify-face-crops
+[06:13:30]     log: runs/overnight_20260508-061330/01a-verify-face-crops.log
+[06:13:30]     cmd: uv run python scripts/verify_face_crops.py --data-root /root/data/FaceForensics++
+[06:13:33] >>> OK     01a-verify-face-crops (3s)
+========================================================================
+[06:13:33] >>> START  01b-extract-faces
+[06:13:33]     log: runs/overnight_20260508-061330/01b-extract-faces.log
+[06:13:33]     cmd: uv run python scripts/extract_faces.py --data-root /root/data/FaceForensics++ --dataset face-forensics --compression c23 --output-size 256 --margin 0.3 --max-frames-per-video 10 --device cuda
+[06:13:36] >>> OK     01b-extract-faces (3s)
+========================================================================
+[06:13:36] >>> CLEANUP  removing obsolete full-frame physics_<variant>/ caches
+[06:13:36] >>> CLEANUP  done (freed approximately 0 GB)
+[06:13:36] post-cleanup disk state:
+    Filesystem                        Size  Used Avail Use% Mounted on
+    /dev/mapper/pve-vm--129--disk--0   49G   28G   19G  61% /
+[06:13:36]     wiping previous runs/baseline_3ch_faces (KEEP_RUNS=1 to preserve)
+========================================================================
+[06:13:36] >>> START  02-baseline-3ch
+[06:13:36]     log: runs/overnight_20260508-061330/02-baseline-3ch.log
+[06:13:36]     cmd: uv run python scripts/pivot_study.py --data-root /root/data/FaceForensics++ --baselines pure-cnn --frames-per-video-train 10 --frames-per-video-eval 10 --epochs 20 --runs-dir runs/baseline_3ch_faces --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+[06:39:02] >>> OK     02-baseline-3ch (1526s)
+========================================================================
+[06:39:02] >>> START  03-cache-physics
+[06:39:02]     log: runs/overnight_20260508-061330/03-cache-physics.log
+[06:39:02]     cmd: uv run python scripts/cache_physics_maps.py --data-root /root/data/FaceForensics++ --variant heuristic --frames-subdir frames_faces --frames-per-video 10 --num-workers 4
+[07:23:26] >>> OK     03-cache-physics (2664s)
+========================================================================
+[07:23:26] >>> START  04-physics-6ch
+[07:23:26]     log: runs/overnight_20260508-061330/04-physics-6ch.log
+[07:23:26]     cmd: uv run python scripts/train_physics_cnn.py --data-root /root/data/FaceForensics++ --variant heuristic --frames-per-video-train 10 --frames-per-video-eval 10 --epochs 20 --runs-dir runs/physics_6ch_faces_heuristic --device cuda --use-ff-splits --use-face-crops --lr 2e-4
+[07:23:26] >>> FAIL   04-physics-6ch (exit=2) after 0s
+[07:23:26] --- last 30 lines of runs/overnight_20260508-061330/04-physics-6ch.log ---
+    usage: train_physics_cnn.py [-h] --data-root DATA_ROOT
+                                [--celeb-data-root CELEB_DATA_ROOT]
+                                [--compression {raw,c23,c40}]
+                                [--variant {heuristic,gtmask}]
+                                [--frames-per-video-train FRAMES_PER_VIDEO_TRAIN]
+                                [--frames-per-video-eval FRAMES_PER_VIDEO_EVAL]
+                                [--seed SEED] [--val-fraction VAL_FRACTION]
+                                [--test-fraction TEST_FRACTION]
+                                [--image-size IMAGE_SIZE] [--epochs EPOCHS]
+                                [--batch-size BATCH_SIZE]
+                                [--learning-rate LEARNING_RATE]
+                                [--weight-decay WEIGHT_DECAY] [--amp]
+                                [--no-balance] [--no-augment] [--freeze-bn]
+                                [--use-ff-splits] [--use-face-crops]
+                                [--device {auto,cpu,cuda,mps}]
+                                [--num-workers NUM_WORKERS] [--no-pretrained]
+                                --runs-dir RUNS_DIR [--skip-train]
+    train_physics_cnn.py: error: unrecognized arguments: --lr 2e-4

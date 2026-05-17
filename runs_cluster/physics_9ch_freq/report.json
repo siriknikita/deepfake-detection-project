@@ -1,0 +1,48 @@
+{
+  "args": {
+    "data_root": "/root/data/FaceForensics++",
+    "celeb_data_root": null,
+    "compression": "c23",
+    "variant": "heuristic",
+    "frames_per_video_train": 10,
+    "frames_per_video_eval": 10,
+    "seed": 0,
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "image_size": 256,
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.0001,
+    "amp": false,
+    "no_balance": false,
+    "no_augment": false,
+    "freeze_bn": false,
+    "use_ff_splits": true,
+    "use_face_crops": true,
+    "channels": "rgb,physics,frequency",
+    "device": "cuda",
+    "num_workers": 4,
+    "no_pretrained": false,
+    "runs_dir": "runs/physics_9ch_freq",
+    "skip_train": false
+  },
+  "train_seconds": 1833.7990918159485,
+  "n_frames": {
+    "train": 36000,
+    "val": 7000,
+    "test_ff": 7000
+  },
+  "ff_test": {
+    "accuracy": 0.7101428571428572,
+    "n_real": 1400.0,
+    "n_fake": 5600.0,
+    "auroc": 0.707233418367347,
+    "video_auroc_mean": 0.796734693877551,
+    "video_auroc_max": 0.9261224489795918,
+    "video_accuracy_mean": 0.725,
+    "n_videos": 280.0,
+    "n_video_real": 140.0,
+    "n_video_fake": 140.0
+  }
+}

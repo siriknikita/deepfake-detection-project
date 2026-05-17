@@ -1,0 +1,15 @@
+[verify] scanning /root/data/FaceForensics++ for corrupt face crops ...
+  [5000] bad so far: 0
+  [10000] bad so far: 0
+  [15000] bad so far: 0
+  rm  /root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames_faces/566_617/0049.png  (UnidentifiedImageError: cannot identify image file '/root/data/FaceForensics++/manipulated_sequences/FaceSwap/c23/frames_faces/566_617/0049.png')
+  [20000] bad so far: 1
+  [25000] bad so far: 1
+  [30000] bad so far: 1
+  [35000] bad so far: 1
+  [40000] bad so far: 1
+  [45000] bad so far: 1
+  [50000] bad so far: 1
+
+checked 50000 face crop files; corrupt: 1
+Deleted. Re-run scripts/extract_faces.py to refill the deleted positions (the existence-check resume will skip every other frame).
