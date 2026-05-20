@@ -382,6 +382,178 @@ the first map set was already strongest. The cross-dataset
 generalisation of the resulting detector is substantially better
 than either Phase 2 or the 3-channel baseline.*
 
+== Qualitative in-the-wild behaviour and the compression covariate
+<sec-phase3-itw>
+
+The evaluation of @sec-phase3-results is confined to FF++ c23 and
+the Celeb-DF v2 testing list — both fixed-compression corpora. To
+probe behaviour under the heterogeneous compression of real-world
+imagery, the trained checkpoints were exercised qualitatively
+through the single-image inference path of the project's web demo
+(`forge_detect.serving_infer`). The observation, across a small set
+of hand-selected real photographs and short clips, was consistent
+and one-directional: the 3-channel RGB baseline and the 6-channel
+RGB+physics build produced *false-positive* "fake" verdicts on
+heavily post-processed or repeatedly recompressed real images
+(studio-retouched portraits, social-media-recompressed phone
+photographs), while the 9-channel frequency-augmented build
+re-classified several of the same inputs as real with high
+confidence.
+
+This is reported as a *qualitative observation*, not a result. The
+sample is small, hand-selected, and single-seed, and at least one
+illustrative case carried an overlay watermark — itself a localised
+synthetic injection — which confounds a clean "robustness to
+non-generative post-processing" reading. Its value is mechanistic
+rather than quantitative, and it sharpens the interpretation of
+@sec-phase3-postmortem rather than extending it.
+
+The mechanism is *compression covariate shift*. FF++ c23 fixes a
+single H.264 compression for the entire training corpus, so the
+compression signature is statistically confounded with the
+real/fake label at training time; a classifier minimising BCE has
+no incentive to separate a synthesis residual from this corpus's
+quantisation residual. Two channel families inherit this exposure
+through different routes, and the distinction matters for the
+write-up:
+
+#set list(marker: ([•]))
+- *Frequency channels — direct.* $E_"DCT"$, $H_"DCT"$ and $F_"FFT"$
+  read the block-DCT and FFT structure of the luminance channel
+  directly. Out-of-distribution JPEG quantisation and double
+  compression leave exactly the high-band block residue these maps
+  were designed to surface for upsampling artefacts; the channels
+  that delivered the cross-dataset gain of @tbl-phase3-headline are
+  therefore also the channels most strongly coupled to a *benign*
+  compression covariate.
+- *Physics channels — indirect, via the Jacobi solve.* The Phase 5
+  manifold settlement is a Jacobi iteration of the Euler–Lagrange
+  PDE; it propagates the chromatic-residual trust map across the
+  surface, so $8 times 8$ block boundaries are smeared into
+  $tilde(z)^*$ and $tilde(R)$ rather than cancelled. The geometric
+  channels are thus not compression-invariant either. This is the
+  *Jacobi PDE solver* of Phase 5, distinct from the *DCT
+  quantisation coefficients* of JPEG read by the frequency channels
+  above; the two are easy to conflate and the failure mode touches
+  both.
+
+The cross-dataset improvement of @sec-phase3-results and this
+compression sensitivity are two faces of one behaviour: the
+frequency channels extract a spectral signal that generalises
+across *synthesis* pipelines and, by the same token, responds to
+*acquisition and post-processing* spectra the training corpus never
+varied. The honest statement is that the multi-channel construction
+is sound in principle and demonstrably better cross-dataset, but
+brittle under compression domain shift that FF++'s fixed c23
+setting does not expose at training time.
+
+Two disclosed experiments isolate the claim and are left as
+immediate future work:
+
++ *Controlled compression sweep.* A single real face re-encoded at
+  a monotone sweep of JPEG quality factors and scored by all three
+  builds; same content, only quantisation varies, removing the
+  content and watermark confounds entirely. A monotone rise of
+  $P("fake")$ as the quality factor drops isolates the covariate.
++ *Disclosed in-the-wild probe.* A symmetric, watermark-free set of
+  real (and matched generated) images scored by
+  `scripts/in_the_wild_eval.py`, reporting per-model false-positive
+  rate and the count of *frequency-correction* cases — real images
+  the geometric builds flag as fake but the 9-channel build calls
+  real. The harness is implemented and disclosed; the corpus is to
+  be assembled and the table below populated.
+
+#figure(
+  table(
+    columns: (auto, auto, auto, auto),
+    align: (left, right, right, right),
+    [Metric (real in-the-wild set, $N$ = _TBD_)], [`baseline_3ch`], [`physics_6ch`], [`physics_9ch`],
+    table.hline(),
+    [False-positive rate],         [_TBD_], [_TBD_], [_TBD_],
+    [Mean $P("fake")$ on real],    [_TBD_], [_TBD_], [_TBD_],
+    [Frequency-correction cases],  [—],     [—],     [_TBD_],
+  ),
+  caption: [Skeleton for the disclosed in-the-wild false-positive
+  probe, to be populated by `scripts/in_the_wild_eval.py` on a
+  watermark-free corpus. Reported as a robustness limitation
+  complementary to @tbl-phase3-headline, not a headline metric;
+  entries marked _TBD_ await corpus assembly.],
+) <tbl-phase3-itw>
+
+This limitation does not contradict the Phase 3 contribution stated
+above; it bounds it. The 9-channel build is the most
+cross-dataset-robust detector the programme produced *and* the most
+exposed to compression covariate shift. A compression-augmented
+training regime — varying the quantisation of the training corpus
+so the label can no longer be predicted from the codec — is the
+single most promising robustness intervention for the next phase.
+
+== Score calibration and the decision threshold
+<sec-phase3-calib>
+
+Every number defended in this chapter is rank-based: frame and video
+AUROC and the per-method / cross-dataset deltas between builds. The
+per-frame sigmoid output $sigma(z)$ is used only to *rank*; it is not
+treated as a calibrated posterior, and the empirical chapter never
+reports an accuracy or a verdict at a fixed operating point. This
+subsection makes that scoping assumption explicit, because the
+accompanying demo (`forge_detect.serving_infer`) does surface a binary
+verdict and a per-input percentage, and neither may be read as a
+calibrated probability.
+
+#set list(marker: ([•]))
+- *The scores are uncalibrated.* The checkpoint-selection discussion
+  of @sec-phase3-results documents the mechanism: under BCE-on-logits
+  the validation loss climbed monotonically for $17$ epochs while
+  validation AUROC kept rising — the textbook signature of logit
+  magnitudes inflating without changing the rank. Inflated logits push
+  $sigma(z)$ toward its saturation regions, so the absolute value is
+  not a frequency-valid probability even though its ordering is
+  informative. A score of $0.57$ means "slightly above this model's
+  score median on this distribution", not "a 57 percent chance of
+  being a deepfake".
+- *The $0.5$ threshold is arbitrary.* $0.5$ is the Bayes-optimal cut
+  only under calibration *and* symmetric priors and costs. None hold:
+  training rebalanced batches to roughly equal classes with a
+  `WeightedRandomSampler`, the FF++ test pool is real-heavy per
+  method, the in-the-wild base rate of manipulation is low, and the
+  cost of a false accusation is not the cost of a missed fake. A
+  defensible operating point must be *selected on a held-out split* —
+  a target false-positive rate, Youden's $J$, or the equal-error rate
+  — not fixed at $0.5$.
+
+The consequence is a scoping rule, not a contradiction of any result.
+A single absolute score, and any binary verdict thresholded from it at
+$0.5$, is not a standalone claim; only the ranking (AUROC), the
+cross-model comparison, and the per-method / cross-dataset deltas are.
+The empirical chapter already obeys this rule — it is why every table
+reports AUROC and none reports accuracy at a fixed cut. The limitation
+is therefore on *deployment interpretation*: a near-threshold score,
+such as the $0.55$–$0.60$ band the demo produces on out-of-domain
+inputs, carries almost no information, and presenting it as a confident
+verdict overstates the model.
+
+The remedy is standard and is the natural calibration task for the
+next phase:
+
++ *Temperature scaling.* Fit a single scalar $T$ per model by
+  minimising negative log-likelihood on the FF++ validation split and
+  rescale the logit by $T$ before the sigmoid. The transform is
+  monotone, so every AUROC in this chapter is unchanged while the
+  probability axis becomes meaningful; reliability diagrams and the
+  expected calibration error on the validation split quantify it.
++ *Threshold selection.* Choose the decision threshold $tau$ on the
+  same validation split at a disclosed operating point and report the
+  in-domain and cross-dataset confusion at that $tau$ separately from
+  the rank metrics. Deployment then reports a calibrated probability
+  against a validated $tau$ rather than an uncalibrated $sigma(z)$
+  against $0.5$.
+
+Until that pass is run, the demo's verdict is provisional on this axis
+and is labelled as such in the interface; the comparative conclusions
+of this chapter are unaffected, because none of them ever depended on
+the absolute score scale or on the $0.5$ cut.
+
 == Outlook
 
 Phase 3 closes the empirical gap between the methodological pattern

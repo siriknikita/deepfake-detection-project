@@ -5,11 +5,14 @@
 # `make help` lists the available targets.
 
 .PHONY: help install dev-install build build-release fmt fmt-check lint typecheck \
-        test test-rust test-python paper paper-watch clean pre-commit
+        test test-rust test-python paper paper-watch clean pre-commit \
+        serve-install serve web-install web
 
 UV ?= uv
 CARGO ?= cargo
 TYPST ?= typst
+NPM ?= npm
+PORT ?= 8000
 
 help:  ## List available targets
 	@awk 'BEGIN{FS=":.*##"; printf "Targets:\n"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[1m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -58,6 +61,18 @@ paper-watch:  ## Recompile the paper on file changes
 
 pre-commit:  ## Run all pre-commit hooks against every file
 	$(UV) run pre-commit run --all-files
+
+serve-install:  ## Install web-serving + dev deps (FastAPI/uvicorn alongside the test/lint stack)
+	$(UV) sync --extra serve --extra dev
+
+serve:  ## Run the FastAPI backend (reload) on $(PORT) — needs `make serve-install` first
+	$(UV) run uvicorn serving.app:app --reload --port $(PORT)
+
+web-install:  ## Install the frontend npm deps
+	cd web && $(NPM) install
+
+web:  ## Run the Vite dev server (proxies /api to the backend)
+	cd web && $(NPM) run dev
 
 clean:  ## Remove build artifacts and caches
 	$(CARGO) clean
