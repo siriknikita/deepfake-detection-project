@@ -15,6 +15,8 @@ function metaTag(m: ModelInfo): string {
   return "3-ch · rgb";
 }
 
+type Theme = "dark" | "light";
+
 export default function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -24,7 +26,20 @@ export default function App() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DetectResults | null>(null);
+  const [theme, setTheme] = useState<Theme>(
+    () =>
+      (document.documentElement.getAttribute("data-theme") as Theme) || "dark",
+  );
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("hf-theme", theme);
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [theme]);
 
   useEffect(() => {
     fetchModels()
@@ -83,6 +98,14 @@ export default function App() {
         <div className="readout">
           <div><span className="live">●</span> service online</div>
           <div>{models.length} models loaded</div>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          >
+            theme · {theme}
+          </button>
         </div>
       </header>
 

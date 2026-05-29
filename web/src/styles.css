@@ -19,8 +19,33 @@
   --accent-soft: rgba(79, 180, 135, 0.10);
   --alert: #d9645f;        /* FAKE — muted, not neon */
 
+  --on-accent: #0c1410;    /* legible mark on the accent fill */
+  --plate-bg: #0b0e12;     /* recessed frame for rendered plates */
+  --fault-bg: rgba(217, 100, 95, 0.07);
+  --fault-border: rgba(217, 100, 95, 0.45);
+
   --sans: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --line: #d0d6dd;
+  --line-soft: #e3e7ec;
+  --ink: #15181c;
+  --ink-2: #4b5258;
+  --ink-3: #7c848f;
+
+  --accent: #2e8a5b;
+  --accent-soft: rgba(46, 138, 91, 0.10);
+  --alert: #b73f3a;
+
+  --on-accent: #ffffff;
+  --plate-bg: #eef0f3;
+  --fault-bg: rgba(183, 63, 58, 0.06);
+  --fault-border: rgba(183, 63, 58, 0.35);
 }
 
 * { box-sizing: border-box; }
@@ -74,6 +99,20 @@ body {
   white-space: nowrap;
 }
 .readout .live { color: var(--accent); }
+.theme-toggle {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.theme-toggle:hover { color: var(--ink); }
 
 /* ---------- section heads ---------- */
 .sec-head {
@@ -136,7 +175,7 @@ body {
   transform: rotate(45deg);
 }
 .model.on .box { background: var(--accent); border-color: var(--accent); }
-.model.on .box::after { border-color: #0c1410; }
+.model.on .box::after { border-color: var(--on-accent); }
 .model.dead .box { opacity: 0.4; }
 
 .m-text { min-width: 0; }
@@ -207,7 +246,7 @@ body {
   background: var(--accent);
   border: 1px solid var(--accent);
   border-radius: 6px;
-  color: #0c1410;
+  color: var(--on-accent);
   font-family: var(--sans);
   font-size: 14px;
   font-weight: 600;
@@ -225,9 +264,9 @@ body {
 .fault {
   margin-top: 18px;
   padding: 13px 16px;
-  border: 1px solid rgba(217, 100, 95, 0.45);
+  border: 1px solid var(--fault-border);
   border-radius: 6px;
-  background: rgba(217, 100, 95, 0.07);
+  background: var(--fault-bg);
   color: var(--alert);
   font-family: var(--mono);
   font-size: 13px;
@@ -297,7 +336,7 @@ body {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #0b0e12;
+  background: var(--plate-bg);
 }
 
 .strip {
