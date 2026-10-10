@@ -43,6 +43,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from forge_detect.backbones import BACKBONES, DEFAULT_BACKBONE
+
 
 def _build_dataset(
     args: argparse.Namespace,
@@ -85,9 +87,11 @@ def _build_model(args: argparse.Namespace, *, in_channels: int) -> Any:
     from forge_detect.cnn import load_weights
 
     if args.model == "baseline":
-        model = build_baseline_classifier(pretrained=False)
+        model = build_baseline_classifier(pretrained=False, backbone=args.backbone)
     elif args.model == "physics":
-        model = build_physics_classifier(in_channels=in_channels, pretrained=False)
+        model = build_physics_classifier(
+            in_channels=in_channels, pretrained=False, backbone=args.backbone
+        )
     else:
         msg = f"--model must be 'baseline' or 'physics', got {args.model!r}"
         raise ValueError(msg)
@@ -105,6 +109,12 @@ def main() -> int:
         required=True,
         help="'baseline' for the 3-channel RGB classifier, 'physics' for "
         "the 6-channel physics-tensor classifier.",
+    )
+    parser.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone the checkpoint was trained with (default: efficientnet_b0).",
     )
     parser.add_argument(
         "--use-face-crops",

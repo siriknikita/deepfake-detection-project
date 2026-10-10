@@ -65,6 +65,8 @@ class TrainingConfig:
     grad_clip: float = 1.0
     log_every: int = 50
     balance_classes: bool = True
+    backbone: str = "efficientnet_b0"
+    """ImageNet backbone for the trust-map net (see ``forge_detect.backbones.BACKBONES``)."""
     """If True, train minibatches are drawn with WeightedRandomSampler
     so each class is sampled proportional to its inverse frequency.
     The image-level loss in :func:`_supervision_loss` is class-weighted
@@ -324,6 +326,7 @@ def train_cnn(
 
     model = build_chromatic_efficientnet(
         pretrained=(pretrained and resume_dir is None),
+        backbone=config.backbone,
     ).to(device)
     optimizer = torch.optim.AdamW(
         model.parameters(),

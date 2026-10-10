@@ -31,6 +31,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from forge_detect.backbones import BACKBONES, DEFAULT_BACKBONE
+
 FF_METHODS: tuple[str, ...] = ("Deepfakes", "Face2Face", "FaceSwap", "NeuralTextures")
 
 
@@ -97,10 +99,12 @@ def _load_model(args: argparse.Namespace, kind: str, *, in_channels: int) -> Any
 
     if kind == "baseline":
         weights = args.baseline_weights
-        model = build_baseline_classifier(pretrained=False)
+        model = build_baseline_classifier(pretrained=False, backbone=args.backbone)
     elif kind == "physics":
         weights = args.physics_weights
-        model = build_physics_classifier(in_channels=in_channels, pretrained=False)
+        model = build_physics_classifier(
+            in_channels=in_channels, pretrained=False, backbone=args.backbone
+        )
     else:
         msg = f"unknown kind {kind!r}"
         raise ValueError(msg)
@@ -178,6 +182,12 @@ def main() -> int:  # noqa: PLR0912
     parser.add_argument("--val-fraction", type=float, default=0.15)
     parser.add_argument("--test-fraction", type=float, default=0.15)
     parser.add_argument("--device", choices=("cpu", "cuda", "mps"), default="cuda")
+    parser.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="Backbone the checkpoints were trained with (default: efficientnet_b0).",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument(

@@ -35,11 +35,14 @@ Then on the full split for the diploma:
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import math
 import time
 from pathlib import Path
 from typing import Any
+
+from forge_detect.backbones import BACKBONES, DEFAULT_BACKBONE
 
 
 def _build_dataset(
@@ -168,10 +171,11 @@ def _run_baseline_cnn(
         cfg,
         pretrained=not args.no_pretrained,
         resume_dir=run_dir,
+        model_factory=functools.partial(build_baseline_classifier, backbone=args.backbone),
     )
     train_seconds = time.time() - t0
     # Reload best.pt and evaluate on test split.
-    model = build_baseline_classifier(pretrained=False)
+    model = build_baseline_classifier(pretrained=False, backbone=args.backbone)
     load_weights(model, Path(out["run_dir"]) / "best.pt")
     test_metrics = evaluate_baseline_cnn(
         model,
@@ -332,6 +336,12 @@ def main() -> int:
     )
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--no-pretrained", action="store_true")
+    parser.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="ImageNet backbone for the pure-CNN baseline (default: efficientnet_b0).",
+    )
     parser.add_argument("--n-scales", type=int, default=4)
     parser.add_argument("--max-iter", type=int, default=300)
     parser.add_argument("--runs-dir", type=Path, default=Path("runs/pivot"))

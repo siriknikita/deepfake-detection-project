@@ -216,6 +216,12 @@ def _add_train_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
     p.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     p.add_argument("--checkpoint-dir", type=Path, default=Path("runs"))
     p.add_argument("--no-pretrained", action="store_true", help="Skip ImageNet weights.")
+    p.add_argument(
+        "--backbone",
+        choices=("efficientnet_b0", "mobilenet_v3_large", "mobilenet_v3_small", "mobilenet_v2"),
+        default="efficientnet_b0",
+        help="ImageNet backbone for the trust-map net.",
+    )
     p.add_argument("--num-workers", type=int, default=4)
     p.add_argument(
         "--resume",
@@ -252,6 +258,7 @@ def _run_train(args: argparse.Namespace) -> int:
         device=args.device,
         checkpoint_dir=args.checkpoint_dir,
         num_workers=args.num_workers,
+        backbone=args.backbone,
     )
     out = train_cnn(
         train_ds,

@@ -1,6 +1,7 @@
-"""ChromaticEfficientNet — trust-map predictor for the W_cnn input.
+"""ChromaticTrustNet — trust-map predictor for the W_cnn input.
 
-A torchvision EfficientNet-B0 backbone with two custom pieces:
+A torchvision ImageNet backbone (EfficientNet-B0 by default; MobileNet variants
+via ``backbone=``, see :mod:`forge_detect.backbones`) with two custom pieces:
 
 - a **chromatic adapter** that maps a 6-channel input (R, G, B, I_w, ΔRG,
   ΔGB) into the 3-channel input EfficientNet expects;
@@ -19,6 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+from forge_detect.backbones import DEFAULT_BACKBONE, build_backbone, feature_dim
 
 if TYPE_CHECKING:
     import torch
@@ -50,12 +53,17 @@ def chromatic_inputs(rgb: Any) -> Any:
     return _torch().cat([r, g, b, i_w, d_rg, d_gb], dim=1)
 
 
-def build_chromatic_efficientnet(*, pretrained: bool = True) -> Any:
+def build_chromatic_efficientnet(
+    *, pretrained: bool = True, backbone: str = DEFAULT_BACKBONE
+) -> Any:
     """Construct the trust-map model as a single :class:`torch.nn.Module`.
 
     Args:
         pretrained: If ``True`` (default), load the IMAGENET1K_V1 weights for
-            the EfficientNet-B0 backbone.
+            the backbone.
+        backbone: One of :data:`forge_detect.backbones.BACKBONES`
+            (``efficientnet_b0`` default, or a MobileNet variant). The name of
+            this function is kept for backward compatibility.
 
     Returns:
         An ``nn.Module`` whose ``forward(rgb_bchw_in_unit_range)`` returns
@@ -63,17 +71,16 @@ def build_chromatic_efficientnet(*, pretrained: bool = True) -> Any:
     """
     torch = _torch()
     from torch import nn
-    from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
-    weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
-    backbone = efficientnet_b0(weights=weights)
-    feature_channels = 1280  # EfficientNet-B0 final feature dim
+    net = build_backbone(backbone, pretrained=pretrained)
+    # 1280 for EfficientNet-B0 / MobileNet-V2, 960 / 576 for MobileNet-V3 large / small.
+    feature_channels = feature_dim(net)
 
-    class ChromaticEfficientNet(nn.Module):
+    class ChromaticTrustNet(nn.Module):
         def __init__(self) -> None:
             super().__init__()
             self.adapter = nn.Conv2d(6, 3, kernel_size=1)
-            self.features = backbone.features  # type: ignore[assignment]
+            self.features = net.features
             self.head = nn.Sequential(
                 nn.Conv2d(feature_channels, 64, kernel_size=1),
                 nn.GELU(),
@@ -83,7 +90,7 @@ def build_chromatic_efficientnet(*, pretrained: bool = True) -> Any:
         def forward(self, rgb_bchw: torch.Tensor) -> torch.Tensor:
             x = chromatic_inputs(rgb_bchw)
             x = self.adapter(x)
-            feat = self.features(x)  # (B, 1280, H/32, W/32)
+            feat = self.features(x)  # (B, feature_channels, H/32, W/32)
             logits = self.head(feat)  # (B, 1, H/32, W/32)
             up = nn.functional.interpolate(
                 logits,
@@ -93,7 +100,10 @@ def build_chromatic_efficientnet(*, pretrained: bool = True) -> Any:
             )
             return torch.sigmoid(up).squeeze(1)  # (B, H, W)
 
-    return ChromaticEfficientNet()
+    return ChromaticTrustNet()
+
+
+build_chromatic_trust_net = build_chromatic_efficientnet
 
 
 def load_weights(model: Any, path: str | Path) -> None:
@@ -125,6 +135,7 @@ def predict_trust_map(model: Any, rgb_hw3: np.ndarray, device: str = "cpu") -> n
 
 __all__ = [
     "build_chromatic_efficientnet",
+    "build_chromatic_trust_net",
     "chromatic_inputs",
     "load_weights",
     "predict_trust_map",

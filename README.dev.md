@@ -611,3 +611,21 @@ Total test count: **88 Rust + 112 Python = 200 tests**, all green.
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
+
+
+## Solver gradient fix and backbone choice (branch `feat/exact-energy-gradient-mobilenet`)
+
+- The settlement solver now descends along the **exact** gradient of the discrete
+  energy: `½∇E = λ(z − z_forged) + α Δᵀ(Δz) − β Sᵀ[W²K(∇I − K Sz)]` with explicit
+  mirror-boundary adjoints (`stencils::laplacian_adjoint`, `scharr::scharr_adjoint`);
+  the PyTorch backend obtains the same quantity by autograd. The previous operator
+  used the paper's `−β div(...)`, which has the wrong sign relative to `E` and left
+  `z*` non-stationary. The initial step is `1/(λ + 64α + 2β·max(WK)²)`.
+  Regression tests: `energy::gradient_matches_finite_difference_directional_derivative`,
+  `pde::solver_reaches_stationary_point_with_consistency_term`,
+  `tests/test_backend_equivalence.py::test_cpu_backend_z_star_is_stationary_for_the_discrete_energy`.
+- `forge_detect.backbones` adds `--backbone {efficientnet_b0,mobilenet_v3_large,mobilenet_v3_small,mobilenet_v2}`
+  to `scripts/train_physics_cnn.py`, `scripts/pivot_study.py`, `scripts/eval_per_method.py`,
+  `scripts/eval_celebdf.py` and `forge-detect train`. EfficientNet-B0 stays the default and
+  existing checkpoints load unchanged; MobileNet variants reuse the same stem surgery, 1-logit
+  head, normalisation and training recipe.

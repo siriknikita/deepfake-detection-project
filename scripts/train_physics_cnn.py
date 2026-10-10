@@ -42,6 +42,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from forge_detect.backbones import BACKBONES, DEFAULT_BACKBONE
+
 
 def _build_ff_dataset(
     args: argparse.Namespace,
@@ -184,7 +186,9 @@ def _train(
     )
 
     def factory(*, pretrained: bool) -> Any:
-        return build_physics_classifier(in_channels=in_channels, pretrained=pretrained)
+        return build_physics_classifier(
+            in_channels=in_channels, pretrained=pretrained, backbone=args.backbone
+        )
 
     out = train_baseline_cnn(
         train_ds,
@@ -340,6 +344,13 @@ def main() -> int:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda", "mps"), default="auto")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--no-pretrained", action="store_true")
+    parser.add_argument(
+        "--backbone",
+        choices=BACKBONES,
+        default=DEFAULT_BACKBONE,
+        help="ImageNet backbone for the multichannel classifier (default: efficientnet_b0; "
+        "MobileNet variants keep the same stem surgery, head and training recipe).",
+    )
     parser.add_argument("--runs-dir", type=Path, required=True)
     parser.add_argument(
         "--skip-train",
@@ -456,7 +467,9 @@ def main() -> int:
             "--runs-dir at a completed run."
         )
         raise FileNotFoundError(msg)
-    model = build_physics_classifier(in_channels=in_channels, pretrained=False)
+    model = build_physics_classifier(
+        in_channels=in_channels, pretrained=False, backbone=args.backbone
+    )
     load_weights(model, best_path)
 
     report: dict[str, Any] = {

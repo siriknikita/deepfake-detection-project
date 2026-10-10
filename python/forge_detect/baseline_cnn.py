@@ -1,6 +1,7 @@
 """Pure-CNN deepfake-classification baseline.
 
-Trains EfficientNet-B0 end-to-end on (image, label) without the
+Trains an ImageNet backbone (EfficientNet-B0 by default, MobileNet variants via
+``backbone=``, see :mod:`forge_detect.backbones`) end-to-end on (image, label) without the
 Hyperplane-Forge math pipeline. This is the *baseline* the diploma's
 empirical chapter compares against — if a learned classifier alone
 matches or beats the full physics pipeline, the framework offers no
@@ -25,6 +26,13 @@ from typing import Any
 
 import numpy as np
 
+from forge_detect.backbones import (
+    DEFAULT_BACKBONE,
+    build_backbone,
+    replace_head_with_logit,
+    stem_conv,
+)
+
 
 def _torch() -> Any:
     try:
@@ -46,8 +54,8 @@ def _select_device(prefer: str = "auto") -> str:
     return prefer
 
 
-# ImageNet normalisation stats — torchvision's EfficientNet-B0 IMAGENET1K_V1
-# weights were trained on inputs normalised by these. Skipping this step keeps
+# ImageNet normalisation stats — torchvision's IMAGENET1K_V1 weights (EfficientNet
+# and MobileNet alike) were trained on inputs normalised by these. Skipping this step keeps
 # val AUROC at chance because the pretrained features fire on the wrong
 # distribution. Apply only to RGB channels; physics-map channels (W_cnn, z*, R)
 # are already per-image normalised to [0, 1] and pass through untouched.
@@ -82,30 +90,31 @@ def _build_imagenet_normalizer() -> Any:
     return _ImageNetNormalize()
 
 
-def build_baseline_classifier(*, pretrained: bool = True) -> Any:
-    """Return EfficientNet-B0 with a 1-logit binary head.
+def build_baseline_classifier(
+    *, pretrained: bool = True, backbone: str = DEFAULT_BACKBONE
+) -> Any:
+    """Return the chosen ImageNet backbone with a 1-logit binary head.
 
-    The output is a single logit per image (use BCEWithLogitsLoss for
-    training, sigmoid for inference probability). The model includes an
-    ImageNet-normalisation layer in front of the backbone so callers can
-    feed raw [0, 1] floats from the dataset adapters directly.
+    ``backbone`` is one of :data:`forge_detect.backbones.BACKBONES`
+    (default ``efficientnet_b0``; ``mobilenet_v3_large`` / ``_small`` /
+    ``mobilenet_v2`` are the lighter alternatives). The output is a single
+    logit per image (use BCEWithLogitsLoss for training, sigmoid for inference
+    probability). The model includes an ImageNet-normalisation layer in front of
+    the backbone so callers can feed raw [0, 1] floats from the dataset adapters
+    directly.
     """
     _torch()  # ensure torch is importable before pulling in torchvision
     from torch import nn
-    from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
-    weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
-    backbone = efficientnet_b0(weights=weights)
-    in_features = backbone.classifier[-1].in_features
-    backbone.classifier = nn.Sequential(
-        nn.Dropout(p=0.2, inplace=True),
-        nn.Linear(in_features, 1),
-    )
-    return nn.Sequential(_build_imagenet_normalizer(), backbone)
+    net = build_backbone(backbone, pretrained=pretrained)
+    replace_head_with_logit(net)
+    return nn.Sequential(_build_imagenet_normalizer(), net)
 
 
-def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -> Any:
-    """EfficientNet-B0 with a 1-logit binary head and a stem-surgery first conv.
+def build_physics_classifier(
+    *, in_channels: int = 6, pretrained: bool = True, backbone: str = DEFAULT_BACKBONE
+) -> Any:
+    """ImageNet backbone with a 1-logit binary head and a stem-surgery first conv.
 
     The first conv is replaced with one that takes ``in_channels`` (default 6:
     RGB + W_cnn + z* + R). When ``pretrained=True``, the original RGB stem
@@ -122,24 +131,16 @@ def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -
     """
     torch = _torch()
     from torch import nn
-    from torchvision.models import EfficientNet_B0_Weights, efficientnet_b0
 
-    weights = EfficientNet_B0_Weights.IMAGENET1K_V1 if pretrained else None
-    backbone = efficientnet_b0(weights=weights)
-    in_features = backbone.classifier[-1].in_features
-    backbone.classifier = nn.Sequential(
-        nn.Dropout(p=0.2, inplace=True),
-        nn.Linear(in_features, 1),
-    )
+    net = build_backbone(backbone, pretrained=pretrained)
+    replace_head_with_logit(net)
 
-    # Stem surgery. torchvision's EfficientNet-B0 stem is
-    #   features[0] = ConvNormActivation(3 -> 32, 3x3, stride=2, bias=False).
-    # Replace the inner Conv2d, preserving the same kernel/stride/padding/bias
-    # spec so the rest of the block (BN, SiLU) keeps its expected input shape.
-    old_conv = backbone.features[0][0]
-    if not isinstance(old_conv, nn.Conv2d):
-        msg = f"unexpected stem layer type {type(old_conv).__name__}; torchvision API changed?"
-        raise RuntimeError(msg)
+    # Stem surgery. Every supported backbone starts with
+    #   features[0] = Conv2dNormActivation(3 -> C, 3x3, stride=2, bias=False)
+    # (C = 32 for EfficientNet-B0 / MobileNet-V2, 16 for MobileNet-V3). Replace
+    # the inner Conv2d, preserving kernel/stride/padding/bias so the rest of the
+    # block (BN, activation) keeps its expected input shape.
+    old_conv = stem_conv(net)
     # nn.Conv2d's typed signature wants tuple[int, int] (or int) for these.
     # The runtime values from `old_conv` are already 2-tuples on Conv2d, but
     # the static type is tuple[int, ...] — cast to satisfy mypy.
@@ -167,8 +168,8 @@ def build_physics_classifier(*, in_channels: int = 6, pretrained: bool = True) -
                 )
         if old_conv.bias is not None and new_conv.bias is not None:
             new_conv.bias.data.copy_(old_conv.bias.data)
-    backbone.features[0][0] = new_conv
-    return nn.Sequential(_build_imagenet_normalizer(), backbone)
+    net.features[0][0] = new_conv
+    return nn.Sequential(_build_imagenet_normalizer(), net)
 
 
 @dataclass
