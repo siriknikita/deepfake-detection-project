@@ -28,6 +28,7 @@ from forge_detect.serving_infer import (
     list_models,
 )
 
+from .artifacts import save_run
 from .jobs import JOBS
 
 app = FastAPI(title="Hyperplane-Forge Detector", version="0.1.0")
@@ -75,10 +76,13 @@ async def detect(
     payload = await file.read()
     name = file.filename
 
+    def _video(progress: Any) -> Any:
+        result = infer_video(payload, model_ids, progress)
+        save_run(result, name, "video")
+        return result
+
     if _is_video(file):
-        job = JOBS.submit(
-            lambda progress: infer_video(payload, model_ids, progress),
-        )
+        job = JOBS.submit(_video)
         return JSONResponse(content={"job_id": job.id, "kind": "video", "filename": name})
 
     try:
@@ -87,6 +91,7 @@ async def detect(
         return JSONResponse(status_code=400, content={"error": str(exc)})
     except Exception as exc:  # noqa: BLE001 — surface any fault as JSON, not HTML
         return JSONResponse(status_code=500, content={"error": str(exc)})
+    save_run(result, name, "image")
     return JSONResponse(content={"filename": name, "results": result})
 
 
