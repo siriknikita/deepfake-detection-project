@@ -308,6 +308,7 @@ def _epoch_pass(  # noqa: PLR0912
     n_total = 0
     proba_all: list[float] = []
     labels_all: list[float] = []
+    grad_raw_norms: list[float] = []  # pre-clip global gradient norms, one per step
 
     autocast_device = "cuda" if device == "cuda" else "cpu"
     profiled_first_batch = False
@@ -356,7 +357,8 @@ def _epoch_pass(  # noqa: PLR0912
             if scaler is not None:
                 scaler.scale(loss).backward()
                 scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                raw_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                grad_raw_norms.append(float(raw_norm))
                 scaler.step(optimizer)
                 scaler.update()
             else:
@@ -382,7 +384,10 @@ def _epoch_pass(  # noqa: PLR0912
                         f"zero-grad-tensors={n_zero_grad}/{n_grad_params} "
                         f"loss={loss.item():.4f}",
                     )
-                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                # clip_grad_norm_ returns the *pre-clip* total norm — the quantity that
+                # reveals a blow-up even when the applied (clipped) norm stays at 1.0.
+                raw_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
+                grad_raw_norms.append(float(raw_norm))
                 optimizer.step()
         total_loss += float(loss.item())
         n_batches += 1
@@ -407,10 +412,12 @@ def _epoch_pass(  # noqa: PLR0912
                 if p.grad is not None:
                     grad_norm += float((p.grad * p.grad).sum().item())
             grad_norm = grad_norm**0.5
+            raw_recent = grad_raw_norms[-config.log_every :] if grad_raw_norms else [float("nan")]
             print(
                 f"    step {step_idx:4d}: loss={loss.item():.4f} "
                 f"logit(mean={logit_mean:+.3f} std={logit_std:.3f}) "
                 f"|grad|={grad_norm:.3f} "
+                f"|grad_raw|(mean={float(np.mean(raw_recent)):.2f} max={float(np.max(raw_recent)):.2f}) "
                 f"running_acc={n_correct/max(1,n_total):.3f}",
             )
         step_idx += 1
@@ -418,6 +425,10 @@ def _epoch_pass(  # noqa: PLR0912
         "loss": total_loss / max(1, n_batches),
         "accuracy": n_correct / max(1, n_total),
     }
+    if grad_raw_norms:
+        out["grad_raw_mean"] = float(np.mean(grad_raw_norms))
+        out["grad_raw_max"] = float(np.max(grad_raw_norms))
+        out["grad_clipped_fraction"] = float(np.mean(np.asarray(grad_raw_norms) > config.grad_clip))
     # Approximate AUROC if both classes are present.
     proba_arr = np.asarray(proba_all)
     labels_arr = np.asarray(labels_all)
