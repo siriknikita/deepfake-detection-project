@@ -48,6 +48,13 @@ models/*.pkl
 models/*.pt
 models/*.pth
 
+# Curated runs (runs_cluster/, runs_mac/) commit lightweight JSON only;
+# heavy regenerable artifacts (classifiers, feature tables) stay local
+runs_cluster/**/*.pkl
+runs_cluster/**/*.csv
+runs_mac/**/*.pkl
+runs_mac/**/*.csv
+
 # Typst build artifacts
 paper/*.pdf
 
