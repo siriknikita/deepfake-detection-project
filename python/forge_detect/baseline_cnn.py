@@ -90,9 +90,7 @@ def _build_imagenet_normalizer() -> Any:
     return _ImageNetNormalize()
 
 
-def build_baseline_classifier(
-    *, pretrained: bool = True, backbone: str = DEFAULT_BACKBONE
-) -> Any:
+def build_baseline_classifier(*, pretrained: bool = True, backbone: str = DEFAULT_BACKBONE) -> Any:
     """Return the chosen ImageNet backbone with a 1-logit binary head.
 
     ``backbone`` is one of :data:`forge_detect.backbones.BACKBONES`
@@ -164,7 +162,8 @@ def build_physics_classifier(
                 # channels a neutral, ImageNet-consistent starting point.
                 rgb_mean = old_w.mean(dim=1, keepdim=True)  # (out, 1, kH, kW)
                 new_w[:, 3:] = rgb_mean.expand(-1, in_channels - 3, -1, -1) / max(
-                    1, in_channels - 3,
+                    1,
+                    in_channels - 3,
                 )
         if old_conv.bias is not None and new_conv.bias is not None:
             new_conv.bias.data.copy_(old_conv.bias.data)
@@ -398,12 +397,7 @@ def _epoch_pass(  # noqa: PLR0912
             n_total += labels.numel()
             proba_all.extend(proba.detach().cpu().tolist())
             labels_all.extend(labels.detach().cpu().tolist())
-        if (
-            train
-            and config.log_every > 0
-            and step_idx > 0
-            and step_idx % config.log_every == 0
-        ):
+        if train and config.log_every > 0 and step_idx > 0 and step_idx % config.log_every == 0:
             with torch.no_grad():
                 logit_std = float(logits.std().item())
                 logit_mean = float(logits.mean().item())
@@ -418,7 +412,7 @@ def _epoch_pass(  # noqa: PLR0912
                 f"logit(mean={logit_mean:+.3f} std={logit_std:.3f}) "
                 f"|grad|={grad_norm:.3f} "
                 f"|grad_raw|(mean={float(np.mean(raw_recent)):.2f} max={float(np.max(raw_recent)):.2f}) "
-                f"running_acc={n_correct/max(1,n_total):.3f}",
+                f"running_acc={n_correct / max(1, n_total):.3f}",
             )
         step_idx += 1
     out = {
