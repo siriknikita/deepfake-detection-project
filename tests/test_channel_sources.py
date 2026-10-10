@@ -215,3 +215,79 @@ def test_built_in_sources_are_picklable() -> None:
         # produce the same path the original source would.
         sample = Path("/data/X/c23/frames/v0/0001.png")
         assert restored.cache_path_fn(sample) == src.cache_path_fn(sample)
+
+
+def test_uint8_physics_cache_dequantises_to_float16_equivalent_inputs(tmp_path: Path) -> None:
+    """A uint8 physics cache (per-map lo/hi codes) must load to the same normalised
+    channels as the float16 cache up to about one code step (< 0.01 after tanh/min-max)."""
+    rng = np.random.default_rng(0)
+    h = w = 16
+    rgb = rng.random((3, h, w)).astype(np.float32)
+    wcnn = rng.random((h, w)).astype(np.float32)
+    z_star = (rng.standard_normal((h, w)) * 0.3).astype(np.float32)
+    residual = (rng.standard_normal((h, w)) * 0.05).astype(np.float32)
+    frames = tmp_path / "frames_faces" / "vid"
+    frames.mkdir(parents=True)
+    img = frames / "0001.png"
+    img.write_bytes(b"")
+    src = physics_channel_source("heuristic")
+    npz = src.cache_path_fn(img)
+    npz.parent.mkdir(parents=True)
+    np.savez_compressed(
+        npz,
+        wcnn=wcnn.astype(np.float16),
+        z_star=z_star.astype(np.float16),
+        residual=residual.astype(np.float16),
+    )
+    ref = load_channels_concat(rgb, img, [src])
+
+    def q(a: np.ndarray) -> tuple[np.ndarray, float, float]:
+        lo, hi = float(a.min()), float(a.max())
+        return np.round((a - lo) / (hi - lo) * 255).astype(np.uint8), lo, hi
+
+    qw, lw, hw = q(wcnn)
+    qz, lz, hz = q(z_star)
+    qr, lr, hr = q(residual)
+    np.savez_compressed(
+        npz,
+        wcnn=qw,
+        z_star=qz,
+        residual=qr,
+        lo=np.array([lw, lz, lr], np.float32),
+        hi=np.array([hw, hz, hr], np.float32),
+    )
+    got = load_channels_concat(rgb, img, [src])
+    assert got.shape == ref.shape == (6, h, w)
+    assert np.abs(got - ref).max() < 0.01
+
+
+def test_frequency_compute_matches_cached_frequency_maps(tmp_path: Path) -> None:
+    pytest.importorskip("scipy")
+    from forge_detect.frequency_map import frequency_maps
+
+    rng = np.random.default_rng(1)
+    h = w = 32
+    rgb_hwc = rng.random((h, w, 3)).astype(np.float32)
+    rgb = np.transpose(rgb_hwc, (2, 0, 1))
+    frames = tmp_path / "frames_faces" / "vid"
+    frames.mkdir(parents=True)
+    img = frames / "0001.png"
+    img.write_bytes(b"")
+    cached = frequency_channel_source("default")
+    npz = cached.cache_path_fn(img)
+    npz.parent.mkdir(parents=True)
+    e, r, m = frequency_maps(rgb_hwc)
+    np.savez_compressed(
+        npz,
+        dct_block_energy=e.astype(np.float16),
+        dct_high_ratio=r.astype(np.float16),
+        fft_radial_logmag=m.astype(np.float16),
+    )
+    ref = load_channels_concat(rgb, img, [cached])
+    computed = parse_channel_spec("rgb,frequency:compute")
+    assert computed[0].compute_fn is not None and computed[0].name == "frequency:compute"
+    got = load_channels_concat(rgb, img, computed)
+    assert got.shape == ref.shape == (6, h, w)
+    assert np.abs(got - ref).max() < 2e-3
+    # pickling survives (DataLoader workers)
+    assert pickle.loads(pickle.dumps(computed[0])).compute_fn is not None

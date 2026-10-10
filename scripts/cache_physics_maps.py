@@ -138,7 +138,10 @@ def _binarise_mask(mask: np.ndarray) -> np.ndarray:
 
 
 def _trust_map(
-    rgb: np.ndarray, mask: np.ndarray | None, label: int, variant: str,
+    rgb: np.ndarray,
+    mask: np.ndarray | None,
+    label: int,
+    variant: str,
 ) -> np.ndarray:
     """Build the trust map for the configured variant.
 
@@ -155,8 +158,28 @@ def _trust_map(
     return heuristic_trust_map(rgb)
 
 
-def _save_npz(path: Path, wcnn: np.ndarray, z_star: np.ndarray, residual: np.ndarray) -> None:
+def _quantize_u8(arr: np.ndarray) -> tuple[np.ndarray, float, float]:
+    """Map ``arr`` linearly onto uint8 over its own [min, max]; returns (codes, lo, hi)."""
+    lo, hi = float(arr.min()), float(arr.max())
+    scale = 255.0 / max(hi - lo, 1e-12)
+    return np.round((arr - lo) * scale).astype(np.uint8), lo, hi
+
+
+def _save_npz(
+    path: Path,
+    wcnn: np.ndarray,
+    z_star: np.ndarray,
+    residual: np.ndarray,
+    store_dtype: str = "float16",
+) -> None:
     """Atomic-ish write: tmp file then rename, so a crash leaves no half-written .npz.
+
+    ``store_dtype="uint8"`` stores each map as 8-bit codes over its own per-map
+    ``[lo, hi]`` range (arrays ``lo``/``hi`` of shape (3,) in key order). The
+    loader (:func:`forge_detect.datasets.load_channels_concat`) dequantises
+    transparently. Because the loader normalises z* per image by min-max and R
+    by ``tanh(R/std)``, the 8-bit path changes the model inputs by < 0.01 (about
+    one code step) while cutting the cache from ~320 KB to ~130 KB per 256² crop.
 
     Note: ``np.savez_compressed`` auto-appends ``.npz`` to a path argument that
     doesn't already end in it, which silently sabotages a tmp+rename pattern
@@ -166,12 +189,25 @@ def _save_npz(path: Path, wcnn: np.ndarray, z_star: np.ndarray, residual: np.nda
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("wb") as f:
-        np.savez_compressed(
-            f,
-            wcnn=wcnn.astype(np.float16, copy=False),
-            z_star=z_star.astype(np.float16, copy=False),
-            residual=residual.astype(np.float16, copy=False),
-        )
+        if store_dtype == "uint8":
+            q_w, lo_w, hi_w = _quantize_u8(wcnn)
+            q_z, lo_z, hi_z = _quantize_u8(z_star)
+            q_r, lo_r, hi_r = _quantize_u8(residual)
+            np.savez_compressed(
+                f,
+                wcnn=q_w,
+                z_star=q_z,
+                residual=q_r,
+                lo=np.array([lo_w, lo_z, lo_r], dtype=np.float32),
+                hi=np.array([hi_w, hi_z, hi_r], dtype=np.float32),
+            )
+        else:
+            np.savez_compressed(
+                f,
+                wcnn=wcnn.astype(np.float16, copy=False),
+                z_star=z_star.astype(np.float16, copy=False),
+                residual=residual.astype(np.float16, copy=False),
+            )
     tmp.replace(path)
 
 
@@ -209,6 +245,7 @@ def _process_index(
         wcnn=w,
         z_star=result.solve.z_star,
         residual=result.solve.residual,
+        store_dtype=getattr(args, "store_dtype", "float16"),
     )
     return idx
 
@@ -270,9 +307,7 @@ def _cache_one_dataset(args: argparse.Namespace) -> dict[str, int]:
     n_done = 0
     n_failed = 0
     with ThreadPoolExecutor(max_workers=args.num_workers) as ex:
-        futures = {
-            ex.submit(_process_index, i, dataset, args, params): i for i in indices_to_do
-        }
+        futures = {ex.submit(_process_index, i, dataset, args, params): i for i in indices_to_do}
         for fut in as_completed(futures):
             idx = futures[fut]
             try:
@@ -282,8 +317,7 @@ def _cache_one_dataset(args: argparse.Namespace) -> dict[str, int]:
                 n_failed += 1
                 rec = dataset._records[idx]
                 print(
-                    f"  ERROR on index {idx} ({rec.image_path}): "
-                    f"{type(e).__name__}: {e}",
+                    f"  ERROR on index {idx} ({rec.image_path}): {type(e).__name__}: {e}",
                 )
 
             seen = n_done + n_failed
@@ -293,8 +327,7 @@ def _cache_one_dataset(args: argparse.Namespace) -> dict[str, int]:
                 eta = (len(indices_to_do) - seen) / max(rate, 1.0e-6)
                 fail_str = f" ({n_failed} failed)" if n_failed else ""
                 print(
-                    f"  [{seen}/{len(indices_to_do)}] {rate:.2f} img/s "
-                    f"ETA {eta:.0f}s{fail_str}",
+                    f"  [{seen}/{len(indices_to_do)}] {rate:.2f} img/s ETA {eta:.0f}s{fail_str}",
                 )
 
     return {
@@ -357,6 +390,14 @@ def main() -> int:
         "going higher gives diminishing returns and risks oversubscription.",
     )
     parser.add_argument("--log-every", type=int, default=25)
+    parser.add_argument(
+        "--store-dtype",
+        choices=("float16", "uint8"),
+        default="float16",
+        help="On-disk precision of the cached maps. uint8 (per-map min/max codes, "
+        "dequantised by the loader) is ~2.4x smaller and changes model inputs by "
+        "< 0.01; use it when disk is the constraint (e.g. laptop runs).",
+    )
     parser.add_argument(
         "--frames-subdir",
         type=str,

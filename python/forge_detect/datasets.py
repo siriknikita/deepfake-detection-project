@@ -115,10 +115,7 @@ def physics_npz_path(image_path: Path, variant: str) -> Path:
         )
         raise ValueError(msg)
     return (
-        frames_dir.parent
-        / physics_dir_name
-        / image_path.parent.name
-        / (image_path.stem + ".npz")
+        frames_dir.parent / physics_dir_name / image_path.parent.name / (image_path.stem + ".npz")
     )
 
 
@@ -148,12 +145,7 @@ def frequency_npz_path(image_path: Path, variant: str) -> Path:
             "cannot derive the frequency-map cache location"
         )
         raise ValueError(msg)
-    return (
-        frames_dir.parent
-        / cache_dir_name
-        / image_path.parent.name
-        / (image_path.stem + ".npz")
-    )
+    return frames_dir.parent / cache_dir_name / image_path.parent.name / (image_path.stem + ".npz")
 
 
 @dataclass(frozen=True)
@@ -178,6 +170,12 @@ class ChannelSource:
     npz_keys: tuple[str, ...]
     normalize: Callable[[dict[str, np.ndarray]], np.ndarray]
     extra: dict[str, str] = field(default_factory=dict)
+    compute_fn: Callable[[np.ndarray], dict[str, np.ndarray]] | None = None
+    """Optional on-the-fly producer ``(H, W, 3) float32 RGB -> {npz_key: (H, W)}``.
+
+    When set, the source never touches the npz cache; it is for maps that are
+    cheap enough to recompute at ``__getitem__`` time (frequency maps: ~2 ms).
+    """
 
 
 def _normalize_physics(arrays: dict[str, np.ndarray]) -> np.ndarray:
@@ -231,8 +229,23 @@ def physics_channel_source(variant: str = "heuristic") -> ChannelSource:
     )
 
 
-def frequency_channel_source(variant: str = "default") -> ChannelSource:
+def _compute_frequency_maps(rgb_hwc: np.ndarray) -> dict[str, np.ndarray]:
+    """On-the-fly producer for the frequency source (same code the cache script runs)."""
+    from forge_detect.frequency_map import frequency_maps
+
+    dct_e, dct_r, fft_m = frequency_maps(rgb_hwc)
+    return {"dct_block_energy": dct_e, "dct_high_ratio": dct_r, "fft_radial_logmag": fft_m}
+
+
+def frequency_channel_source(
+    variant: str = "default", *, on_the_fly: bool = False
+) -> ChannelSource:
     """Build a :class:`ChannelSource` for the Phase-3 frequency maps.
+
+    ``on_the_fly=True`` (spec token ``frequency:compute``) computes the maps from
+    the RGB image at load time (~2 ms per 256² crop) instead of reading the
+    ``frequency_*`` npz cache — numerically identical to the ``default`` cache
+    up to float16 rounding, and it needs no disk.
 
     See :func:`physics_channel_source` for the partial-vs-lambda rationale.
     """
@@ -240,12 +253,17 @@ def frequency_channel_source(variant: str = "default") -> ChannelSource:
         msg = f"frequency variant must be one of {FREQUENCY_VARIANTS}, got {variant!r}"
         raise ValueError(msg)
     return ChannelSource(
-        name=f"frequency:{variant}",
+        name=f"frequency:{'compute' if on_the_fly else variant}",
         n_channels=3,
         cache_path_fn=partial(frequency_npz_path, variant=variant),
         npz_keys=FREQUENCY_NPZ_KEYS,
         normalize=_normalize_frequency,
-        extra={"family": "frequency", "variant": variant},
+        extra={
+            "family": "frequency",
+            "variant": variant,
+            "source": "compute" if on_the_fly else "cache",
+        },
+        compute_fn=_compute_frequency_maps if on_the_fly else None,
     )
 
 
@@ -264,6 +282,7 @@ def parse_channel_spec(
         physics:<v>                — physics_channel_source(<v>)
         frequency                  — frequency_channel_source(frequency_variant)
         frequency:<v>              — frequency_channel_source(<v>)
+        frequency:compute          — frequency maps computed on the fly (no cache)
 
     Empty / whitespace-only tokens are ignored. ``rgb`` is always implicit
     so callers can write ``"rgb,physics,frequency"`` for a 9-channel build
@@ -282,6 +301,8 @@ def parse_channel_spec(
             raise ValueError(msg)
         if family == "physics":
             sources.append(physics_channel_source(variant or physics_variant))
+        elif family == "frequency" and variant == "compute":
+            sources.append(frequency_channel_source(frequency_variant, on_the_fly=True))
         elif family == "frequency":
             sources.append(frequency_channel_source(variant or frequency_variant))
         else:
@@ -321,23 +342,22 @@ def load_channels_concat(
     parts: list[np.ndarray] = [image_chw.astype(np.float32, copy=False)]
     _, h, w = image_chw.shape
     for src in sources:
-        npz = src.cache_path_fn(image_path)
-        if not npz.exists():
-            msg = (
-                f"channel cache for source '{src.name}' not found at {npz}. "
-                "Run the matching cache_*.py script first; the script writes "
-                "to this exact path."
-            )
-            raise FileNotFoundError(msg)
-        with np.load(npz) as f:
-            try:
-                arrays = {k: np.asarray(f[k], dtype=np.float32) for k in src.npz_keys}
-            except KeyError as e:
+        if src.compute_fn is not None:
+            rgb_hwc = np.transpose(image_chw[:3], (1, 2, 0)).astype(np.float32, copy=False)
+            arrays = {
+                k: np.asarray(v, dtype=np.float32) for k, v in src.compute_fn(rgb_hwc).items()
+            }
+            npz = Path("(computed)")
+        else:
+            npz = src.cache_path_fn(image_path)
+            if not npz.exists():
                 msg = (
-                    f"channel cache at {npz} is missing key {e}; "
-                    f"expected keys: {src.npz_keys}"
+                    f"channel cache for source '{src.name}' not found at {npz}. "
+                    "Run the matching cache_*.py script first; the script writes "
+                    "to this exact path."
                 )
-                raise ValueError(msg) from e
+                raise FileNotFoundError(msg)
+            arrays = _read_npz_arrays(npz, src.npz_keys)
         for key, arr in arrays.items():
             if arr.shape != (h, w):
                 msg = (
@@ -357,8 +377,34 @@ def load_channels_concat(
     return np.concatenate(parts, axis=0)
 
 
+def _read_npz_arrays(npz: Path, keys: tuple[str, ...]) -> dict[str, np.ndarray]:
+    """Read ``keys`` from an npz cache as float32, dequantising uint8 caches.
+
+    Caches written with ``cache_physics_maps.py --store-dtype uint8`` hold
+    8-bit codes plus ``lo``/``hi`` arrays (one entry per key, in key order);
+    ``value = lo + code / 255 * (hi - lo)``.
+    """
+    with np.load(npz) as f:
+        try:
+            raw = {k: f[k] for k in keys}
+        except KeyError as e:
+            msg = f"channel cache at {npz} is missing key {e}; expected keys: {keys}"
+            raise ValueError(msg) from e
+        lo = f["lo"] if "lo" in f.files else None
+        hi = f["hi"] if "hi" in f.files else None
+    out: dict[str, np.ndarray] = {}
+    for i, k in enumerate(keys):
+        arr = raw[k]
+        if arr.dtype == np.uint8 and lo is not None and hi is not None:
+            out[k] = float(lo[i]) + arr.astype(np.float32) * (float(hi[i]) - float(lo[i])) / 255.0
+        else:
+            out[k] = np.asarray(arr, dtype=np.float32)
+    return out
+
+
 def load_physics_maps_concat(
-    image_chw: np.ndarray, npz_path: Path,
+    image_chw: np.ndarray,
+    npz_path: Path,
 ) -> np.ndarray:
     """Load `(wcnn, z_star, residual)` from npz, normalize each, concat to RGB.
 
@@ -597,9 +643,7 @@ class FaceForensicsAdapter(Dataset):
             )
         # Fake frames per method.
         for method in methods:
-            method_root = (
-                self.root / "manipulated_sequences" / method / compression / frames_subdir
-            )
+            method_root = self.root / "manipulated_sequences" / method / compression / frames_subdir
             # Masks are not face-cropped; gtmask physics from face-cropped
             # frames would need a separate mask-cropping pass. For now, only
             # attach masks when reading the standard "frames" tree.
@@ -673,11 +717,10 @@ class FaceForensicsAdapter(Dataset):
             # Reals have no GT mask, so the gtmask variant has nothing to
             # offer them — they always read from the heuristic cache. Fakes
             # honor the configured variant.
-            variant = (
-                self.physics_variant if rec.label == 1 else "heuristic"
-            )
+            variant = self.physics_variant if rec.label == 1 else "heuristic"
             arr = load_physics_maps_concat(
-                arr, physics_npz_path(rec.image_path, variant),
+                arr,
+                physics_npz_path(rec.image_path, variant),
             )
         import torch
 
@@ -890,7 +933,8 @@ class CelebDFAdapter(Dataset):
             arr = load_channels_concat(arr, rec.image_path, self._channel_sources)
         elif self.load_physics_maps:
             arr = load_physics_maps_concat(
-                arr, physics_npz_path(rec.image_path, "heuristic"),
+                arr,
+                physics_npz_path(rec.image_path, "heuristic"),
             )
         import torch
 
