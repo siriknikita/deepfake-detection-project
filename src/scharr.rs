@@ -78,6 +78,48 @@ pub fn scharr_gradients(input: ArrayView2<f32>) -> (Array2<f32>, Array2<f32>) {
     (ix, iy)
 }
 
+/// Adjoint (transpose) of [`scharr_gradients`] under the mirror boundary
+/// convention: `⟨∇u, (Fx, Fy)⟩ = ⟨u, ∇ᵀ(Fx, Fy)⟩` holds exactly on the whole grid.
+///
+/// In the interior the Scharr kernels are antisymmetric, so `∇ᵀF = −div_S F`
+/// where `div_S` applies the same Scharr stencils to `Fx` and `Fy`; the mirror
+/// reflection modifies the outermost ring. The implementation is the exact
+/// transpose of the gather in [`scharr_gradients`]. Needed for the exact
+/// gradient of the gradient-consistency energy.
+#[must_use]
+pub fn scharr_adjoint(fx: ArrayView2<f32>, fy: ArrayView2<f32>) -> Array2<f32> {
+    assert_eq!(fx.dim(), fy.dim(), "Fx and Fy must have matching shape");
+    let (h, w) = fx.dim();
+    let h_i = h as i32;
+    let w_i = w as i32;
+    let mut out = Array2::<f32>::zeros((h, w));
+    for y in 0..h {
+        let y_m = mirror(y as i32 - 1, h_i);
+        let y_p = mirror(y as i32 + 1, h_i);
+        for x in 0..w {
+            let x_m = mirror(x as i32 - 1, w_i);
+            let x_p = mirror(x as i32 + 1, w_i);
+            let gx = SCHARR_NORM * fx[(y, x)];
+            let gy = SCHARR_NORM * fy[(y, x)];
+            // Transpose of gx = A(p_mp − p_mm) + B(p_cp − p_cm) + A(p_pp − p_pm).
+            out[(y_m, x_p)] += A * gx;
+            out[(y_m, x_m)] -= A * gx;
+            out[(y, x_p)] += B * gx;
+            out[(y, x_m)] -= B * gx;
+            out[(y_p, x_p)] += A * gx;
+            out[(y_p, x_m)] -= A * gx;
+            // Transpose of gy = A(p_pm − p_mm) + B(p_pc − p_mc) + A(p_pp − p_mp).
+            out[(y_p, x_m)] += A * gy;
+            out[(y_m, x_m)] -= A * gy;
+            out[(y_p, x)] += B * gy;
+            out[(y_m, x)] -= B * gy;
+            out[(y_p, x_p)] += A * gy;
+            out[(y_m, x_p)] -= A * gy;
+        }
+    }
+    out
+}
+
 /// Pixel-wise gradient magnitude `|∇I| = √(I_x² + I_y²)`.
 #[must_use]
 pub fn gradient_magnitude(ix: ArrayView2<f32>, iy: ArrayView2<f32>) -> Array2<f32> {
@@ -206,6 +248,43 @@ mod tests {
     fn y_kernel_antisymmetric_gives_zero_on_constant() {
         let ky_sum = -A + (-B) + (-A) + 0.0 + 0.0 + 0.0 + A + B + A;
         assert!(approx_eq(ky_sum, 0.0, 1e-9));
+    }
+
+    fn pseudo_random(shape: (usize, usize), seed: u32) -> Array2<f32> {
+        let mut state = seed;
+        Array2::from_shape_fn(shape, |_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+        })
+    }
+
+    #[test]
+    fn scharr_adjoint_satisfies_inner_product_identity() {
+        // ⟨∇u, F⟩ = ⟨u, ∇ᵀF⟩ on the full grid, boundary included.
+        let u = pseudo_random((8, 10), 11);
+        let fx = pseudo_random((8, 10), 12);
+        let fy = pseudo_random((8, 10), 13);
+        let (ux, uy) = scharr_gradients(u.view());
+        let lhs: f32 = ux.iter().zip(fx.iter()).map(|(a, b)| a * b).sum::<f32>()
+            + uy.iter().zip(fy.iter()).map(|(a, b)| a * b).sum::<f32>();
+        let rhs: f32 =
+            u.iter().zip(scharr_adjoint(fx.view(), fy.view()).iter()).map(|(a, b)| a * b).sum();
+        assert!(approx_eq(lhs, rhs, 1e-4 * lhs.abs().max(1.0)), "⟨∇u,F⟩={lhs} vs ⟨u,∇ᵀF⟩={rhs}");
+    }
+
+    #[test]
+    fn scharr_adjoint_is_negative_scharr_divergence_on_interior() {
+        // Antisymmetric kernels: ∇ᵀ(Fx, Fy) = −(Sx Fx + Sy Fy) away from the edge.
+        let fx = pseudo_random((11, 11), 21);
+        let fy = pseudo_random((11, 11), 22);
+        let adj = scharr_adjoint(fx.view(), fy.view());
+        let (fxx, _) = scharr_gradients(fx.view());
+        let (_, fyy) = scharr_gradients(fy.view());
+        for y in 2..9 {
+            for x in 2..9 {
+                assert!(approx_eq(adj[(y, x)], -(fxx[(y, x)] + fyy[(y, x)]), 1e-5));
+            }
+        }
     }
 
     #[test]

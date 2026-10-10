@@ -39,6 +39,38 @@ pub fn laplacian(z: ArrayView2<f32>) -> Array2<f32> {
     out
 }
 
+/// Adjoint (transpose) of [`laplacian`] under the mirror boundary convention,
+/// so that `⟨Δu, v⟩ = ⟨u, Δᵀv⟩` holds exactly on the whole grid.
+///
+/// Away from the boundary the 5-point stencil is symmetric and `Δᵀ = Δ`; the
+/// mirror reflection breaks that symmetry on the outermost ring (a boundary
+/// pixel reads its interior neighbour twice). The adjoint is the exact
+/// transpose of the gather: every tap `out[p] += w · z[mirror(p + d)]` becomes
+/// the scatter `out[mirror(p + d)] += w · v[p]`. Needed for the exact gradient
+/// of the smoothness energy `α Σ (Δz)²`, whose L²-gradient is `2α ΔᵀΔz`.
+#[must_use]
+pub fn laplacian_adjoint(v: ArrayView2<f32>) -> Array2<f32> {
+    let (h, w) = v.dim();
+    let h_i = h as i32;
+    let w_i = w as i32;
+    let mut out = Array2::<f32>::zeros((h, w));
+    for y in 0..h {
+        let y_m = mirror(y as i32 - 1, h_i);
+        let y_p = mirror(y as i32 + 1, h_i);
+        for x in 0..w {
+            let x_m = mirror(x as i32 - 1, w_i);
+            let x_p = mirror(x as i32 + 1, w_i);
+            let val = v[(y, x)];
+            out[(y_p, x)] += val;
+            out[(y_m, x)] += val;
+            out[(y, x_p)] += val;
+            out[(y, x_m)] += val;
+            out[(y, x)] -= 4.0 * val;
+        }
+    }
+    out
+}
+
 /// Biharmonic operator computed as the iterated Laplacian: `Δ²z = Δ(Δz)`.
 ///
 /// Applied with Neumann boundary handling on both passes, so the natural
@@ -210,6 +242,38 @@ mod tests {
                 // x⁴ has no terms above degree 4 and the iterated 5-point
                 // stencil is exact on polynomials of degree ≤ 4 in x alone.
                 assert!(approx_eq(v, 24.0, 1e-2), "Δ²(x⁴) at ({y}, {x}) = {v}");
+            }
+        }
+    }
+
+    /// Deterministic pseudo-random field (LCG) for adjointness checks.
+    fn pseudo_random(shape: (usize, usize), seed: u32) -> Array2<f32> {
+        let mut state = seed;
+        Array2::from_shape_fn(shape, |_| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+        })
+    }
+
+    #[test]
+    fn laplacian_adjoint_satisfies_inner_product_identity() {
+        // ⟨Δu, v⟩ = ⟨u, Δᵀv⟩ must hold on the full grid, boundary included.
+        let u = pseudo_random((9, 7), 1);
+        let v = pseudo_random((9, 7), 2);
+        let lhs: f32 = laplacian(u.view()).iter().zip(v.iter()).map(|(a, b)| a * b).sum();
+        let rhs: f32 = u.iter().zip(laplacian_adjoint(v.view()).iter()).map(|(a, b)| a * b).sum();
+        assert!(approx_eq(lhs, rhs, 1e-4 * lhs.abs().max(1.0)), "⟨Δu,v⟩={lhs} vs ⟨u,Δᵀv⟩={rhs}");
+    }
+
+    #[test]
+    fn laplacian_adjoint_equals_laplacian_on_interior() {
+        // Interior stencil is symmetric, so Δᵀv = Δv two pixels away from the edge.
+        let v = pseudo_random((11, 11), 3);
+        let a = laplacian(v.view());
+        let b = laplacian_adjoint(v.view());
+        for y in 2..9 {
+            for x in 2..9 {
+                assert!(approx_eq(a[(y, x)], b[(y, x)], 1e-5));
             }
         }
     }

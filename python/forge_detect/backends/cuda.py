@@ -21,10 +21,14 @@ Implementation strategy:
   :func:`torch.Tensor.scatter_reduce_` ``'amin'`` into a flat ``H·W``
   buffer. This is the same algorithm as the CPU path but parallel
   across keypoints.
-- **Jacobi solver**: vectorized fixed-point iteration with the same
-  backtracking line search as the Rust implementation, ported one-to-
-  one. The whole loop runs inside ``torch.no_grad()`` because we are
-  not training the solver — only the trust-map CNN takes gradients.
+- **Settlement solver**: damped gradient descent with the same step bound
+  and backtracking line search as the Rust implementation. The descent
+  direction is the *exact* gradient of the discrete energy, obtained by
+  ``torch.autograd`` on the same reflect-padded operators the energy uses
+  (the Rust core computes the identical quantity with explicit adjoint
+  stencils, see ``energy::energy_gradient_half``). The outer loop runs
+  under ``torch.no_grad()``; autograd is enabled locally for that one
+  gradient evaluation per iteration — only the trust-map CNN is trained.
 """
 
 from __future__ import annotations
@@ -307,6 +311,50 @@ def _energy_terms(
     }
 
 
+def _energy_total_tensor(
+    z: Any,
+    z_forged: Any,
+    ix: Any,
+    iy: Any,
+    w_cnn: Any,
+    k_alb: Any,
+    pde: PdeParams,
+) -> Any:
+    """Differentiable scalar ``E(z)`` (same operators as :func:`_energy_terms`)."""
+    data_sum = ((z - z_forged) ** 2).sum()
+    lap = _laplacian(z.unsqueeze(0).unsqueeze(0)).squeeze()
+    smooth_sum = (lap**2).sum()
+    zx, zy = _scharr_gradients(z.unsqueeze(0).unsqueeze(0))
+    rx = w_cnn * (ix - k_alb * zx.squeeze())
+    ry = w_cnn * (iy - k_alb * zy.squeeze())
+    cons_sum = ((rx**2) + (ry**2)).sum()
+    return pde.lambda_ * data_sum + pde.alpha * smooth_sum + pde.beta * cons_sum
+
+
+def _energy_gradient_half(
+    z: Any,
+    z_forged: Any,
+    ix: Any,
+    iy: Any,
+    w_cnn: Any,
+    k_alb: Any,
+    pde: PdeParams,
+) -> Any:
+    """``½ ∂E/∂z`` by autograd — the exact gradient of the implemented energy.
+
+    Mirrors ``energy::energy_gradient_half`` in the Rust core, which evaluates
+    ``λ(z − z_forged) + α Δᵀ(Δz) − β Sᵀ[W²K(∇I − K Sz)]`` with explicit
+    adjoint stencils under the same mirror boundary.
+    """
+    import torch
+
+    with torch.enable_grad():  # type: ignore[no-untyped-call]
+        z_req = z.detach().requires_grad_(True)
+        e = _energy_total_tensor(z_req, z_forged, ix, iy, w_cnn, k_alb, pde)
+        (grad,) = torch.autograd.grad(e, z_req)
+    return 0.5 * grad.detach()
+
+
 def _jacobi_solve(
     z_forged: Any,
     ix: Any,
@@ -315,13 +363,14 @@ def _jacobi_solve(
     k_alb: Any,
     pde: PdeParams,
 ) -> tuple[Any, list[float], int, bool]:
-    """Vectorized Jacobi iteration with backtracking line search."""
+    """Damped gradient descent on ``E`` with the Rust core's step bound and line search."""
     import torch
 
     z = z_forged.clone()
     max_wk2 = float((w_cnn * k_alb).pow(2).max().item())
-    diag = pde.lambda_ + 20.0 * pde.alpha + 16.0 * pde.beta * max_wk2
-    tau = 0.5 / diag if diag > 0 else 0.5
+    # Lipschitz bound on ½∇E: ‖ΔᵀΔ‖ ≤ 64, ‖SᵀS‖ ≤ 2 (1/32-normalised Scharr).
+    lipschitz = pde.lambda_ + 64.0 * pde.alpha + 2.0 * pde.beta * max_wk2
+    tau = 1.0 / lipschitz if lipschitz > 0 else 0.5
     backoff_tries = 6
 
     energy_trace: list[float] = []
@@ -334,27 +383,7 @@ def _jacobi_solve(
     for n in range(1, pde.max_iter + 1):
         z_prev_norm = float(torch.linalg.vector_norm(z).item()) or 1e-12
 
-        lap = _laplacian(z.unsqueeze(0).unsqueeze(0)).squeeze()
-        bilap = _laplacian(lap.unsqueeze(0).unsqueeze(0)).squeeze()
-        zx, zy = _scharr_gradients(z.unsqueeze(0).unsqueeze(0))
-        zx = zx.squeeze()
-        zy = zy.squeeze()
-        fx = w_cnn * w_cnn * k_alb * (ix - k_alb * zx)
-        fy = w_cnn * w_cnn * k_alb * (iy - k_alb * zy)
-        # Central-difference divergence.
-        import torch.nn.functional as F
-
-        kxd = torch.tensor(
-            [[0.0, 0.0, 0.0], [-0.5, 0.0, 0.5], [0.0, 0.0, 0.0]], device=z.device, dtype=z.dtype
-        ).view(1, 1, 3, 3)
-        kyd = torch.tensor(
-            [[0.0, -0.5, 0.0], [0.0, 0.0, 0.0], [0.0, 0.5, 0.0]], device=z.device, dtype=z.dtype
-        ).view(1, 1, 3, 3)
-        fx_pad = F.pad(fx.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode="reflect")
-        fy_pad = F.pad(fy.unsqueeze(0).unsqueeze(0), (1, 1, 1, 1), mode="reflect")
-        div_f = (F.conv2d(fx_pad, kxd) + F.conv2d(fy_pad, kyd)).squeeze()
-
-        residual = pde.lambda_ * (z - z_forged) + pde.alpha * bilap - pde.beta * div_f
+        residual = _energy_gradient_half(z, z_forged, ix, iy, w_cnn, k_alb, pde)
 
         # Line search.
         accepted_z = z

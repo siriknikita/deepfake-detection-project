@@ -22,13 +22,16 @@ $ chevron.l E'(z), delta z chevron.r =
 
 Apply integration by parts twice on the biharmonic term and once on
 the gradient-consistency term, using the natural boundary conditions
-(developed below) so that boundary integrals vanish. We are left with
+(developed below) so that boundary integrals vanish. Writing
+$F = W_"cnn"^2 dot.o K (nabla I - K nabla z)$, the consistency term is
+$-2 beta integral.double F dot.c nabla delta z thin dif A
+= +2 beta integral.double op("div")(F) thin delta z thin dif A$, so
 
 $ chevron.l E'(z), delta z chevron.r =
   2 integral.double_Omega [thin
     lambda (z - overline(z)_"forged")
     + alpha thin Delta^2 z
-    - beta thin op("div") (W_"cnn"^2 dot.o K (nabla I - K nabla z))
+    + beta thin op("div") (W_"cnn"^2 dot.o K (nabla I - K nabla z))
   ] delta z thin dif A. $
 
 Stationarity ($chevron.l E'(z), delta z chevron.r = 0$ for all admissible
@@ -36,9 +39,17 @@ $delta z$) gives the *Euler-Lagrange PDE*:
 
 $ lambda (z - overline(z)_"forged")
 + alpha thin Delta^2 z
-- beta thin op("div") (W_"cnn"^2 dot.o K (nabla I - K nabla z))
++ beta thin op("div") (W_"cnn"^2 dot.o K (nabla I - K nabla z))
 = 0
 quad "on" Omega. $ <eq-euler-lagrange>
+
+_Erratum._ Earlier versions of this derivation (and of the solver) carried
+the divergence term with a minus sign. That operator is not the gradient of
+@eq-energy: the iteration then decreased $E$ only while the $lambda$ and
+$alpha$ terms dominated and stopped when its step size collapsed, leaving a
+non-stationary $z^*$ (energy-gradient norm 20–55% of its starting value on
+real faces). The corrected sign above is verified numerically against finite
+differences of the implemented discrete energy (`energy::gradient_matches_finite_difference_directional_derivative`).
 
 The left-hand side is, by definition, $1/2 dot.c (delta E slash delta z)$,
 the *L²-gradient* of the energy. Solving @eq-euler-lagrange means
@@ -100,7 +111,25 @@ uses the Scharr operator from Phase 2 — applied to $z$ this is
 consistent with the gradient operator already used elsewhere and
 keeps numerical errors aligned across all stages.
 
-== Jacobi fixed-point iteration
+The implemented solver does not discretise @eq-euler-lagrange with the
+central-difference divergence @eq-divergence, because that stencil is not
+the adjoint of the Scharr gradient (nor is the mirror-padded Laplacian
+self-adjoint on the boundary ring). Instead it evaluates the *exact*
+gradient of the discrete energy,
+
+$ 1/2 (partial E) / (partial z)
+  = lambda (z - overline(z)_"forged")
+  + alpha thin Delta^top (Delta z)
+  - beta thin S^top [W_"cnn"^2 dot.o K (nabla I - K S z)], $
+
+where $S$ is the Scharr gradient, $Delta$ the mirror 5-point Laplacian and
+$Delta^top$, $S^top$ their exact transposes (`stencils::laplacian_adjoint`,
+`scharr::scharr_adjoint`). In the interior $-S^top F$ coincides with the
+Scharr divergence $+op("div")_S F$, i.e. with @eq-euler-lagrange; on the
+boundary ring the transposes differ from the forward stencils, which is
+what makes every step a descent step of the discrete $E$.
+
+== Damped gradient descent (Jacobi-type iteration)
 
 Discretizing @eq-euler-lagrange yields a sparse linear system
 
@@ -132,10 +161,11 @@ Iteration stops at iteration $n$ when
 $ norm(z^((n)) - z^((n-1)))_2 / norm(z^((n)))_2 < tau, $
 
 with default tolerance $tau = 10^(-5)$, or when $n$ reaches a hard
-cap $n_max = 500$. In practice convergence is monotone in $E(z^((n)))$
-(verified empirically on every run by sampling the energy every ten
-iterations) and reaches the tolerance in 100–250 iterations on
-$512 times 512$ images.
+cap $n_max = 500$. The step size starts at $tau_0 = 1 slash (lambda + 64 alpha + 2 beta max(W K)^2)$,
+a bound on the Lipschitz constant of the gradient
+($norm(Delta^top Delta) <= 64$, $norm(S^top S) <= 2$), so every step
+decreases $E$; a backtracking line search guards against rounding.
+Convergence is monotone in $E(z^((n)))$ (sampled every ten iterations).
 
 == Output of Phase 5
 

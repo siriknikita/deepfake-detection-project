@@ -23,6 +23,8 @@ ordering byte-for-byte, which is not in scope.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -140,3 +142,35 @@ def test_cuda_backend_shapes_match_cpu() -> None:
     assert cpu.z_forged.shape == gpu.z_forged.shape
     assert cpu.residual.shape == gpu.residual.shape
     assert cpu.laplacian.shape == gpu.laplacian.shape
+
+
+def test_cpu_backend_z_star_is_stationary_for_the_discrete_energy() -> None:
+    """Regression for the gradient-sign defect: the exact gradient of the implemented
+    energy (torch autograd on the same reflect-padded operators) must be small at the
+    Rust z* relative to its value at z_forged."""
+    pytest.importorskip("torch")
+    import torch
+
+    from forge_detect.backends.cuda import _energy_total_tensor, _local_median, _scharr_gradients
+
+    rgb, w_cnn = _fixed_input(seed=3, size=32)
+    params = PipelineParams(n_scales=2, pde=PdeParams(max_iter=3000, tol=1e-9, log_every=0))
+    cpu = CpuBackend().solve(rgb, w_cnn, params)
+
+    def t(a: Any) -> Any:
+        return torch.tensor(a, dtype=torch.float64)
+
+    i_w = t(rgb[..., 0] * params.w_r + rgb[..., 1] * params.w_g + rgb[..., 2] * params.w_b)
+    rho = _local_median(i_w[None, None], params.albedo_window_radius).squeeze()
+    ix, iy = _scharr_gradients(i_w[None, None])
+    ix, iy = ix.squeeze(), iy.squeeze()
+    zf = t(cpu.z_forged)
+
+    def grad_norm(z_np: Any) -> float:
+        z = t(z_np).requires_grad_(True)
+        e = _energy_total_tensor(z, zf, ix, iy, t(w_cnn), rho, params.pde)
+        (g,) = torch.autograd.grad(e, z)
+        return float(g.norm())
+
+    ratio = grad_norm(cpu.z_star) / grad_norm(cpu.z_forged)
+    assert ratio < 5e-3, f"gradient norm ratio {ratio:.3e} after {cpu.iterations} iterations"
