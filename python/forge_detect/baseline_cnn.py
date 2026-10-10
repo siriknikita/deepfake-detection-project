@@ -411,7 +411,8 @@ def _epoch_pass(  # noqa: PLR0912
                 f"    step {step_idx:4d}: loss={loss.item():.4f} "
                 f"logit(mean={logit_mean:+.3f} std={logit_std:.3f}) "
                 f"|grad|={grad_norm:.3f} "
-                f"|grad_raw|(mean={float(np.mean(raw_recent)):.2f} max={float(np.max(raw_recent)):.2f}) "
+                f"|grad_raw|(mean={float(np.mean(raw_recent)):.2f} "
+                f"max={float(np.max(raw_recent)):.2f}) "
                 f"running_acc={n_correct / max(1, n_total):.3f}",
             )
         step_idx += 1
