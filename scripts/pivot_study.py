@@ -45,6 +45,12 @@ from typing import Any
 from forge_detect.backbones import BACKBONES, DEFAULT_BACKBONE
 
 
+def _resolve_device(device: str) -> str:
+    """Map "auto" to cuda / mps / cpu (same rule as baseline_cnn._select_device)."""
+    from forge_detect.baseline_cnn import _select_device
+
+    return _select_device(device)
+
 def _build_dataset(
     args: argparse.Namespace,
     *,
@@ -180,7 +186,7 @@ def _run_baseline_cnn(
     test_metrics = evaluate_baseline_cnn(
         model,
         test_ds,
-        device=args.device if args.device != "auto" else "cuda",
+        device=_resolve_device(args.device),
         batch_size=args.batch_size,
         num_workers=args.num_workers,
     )
@@ -326,7 +332,7 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument(
         "--device",
-        choices=("auto", "cpu", "cuda"),
+        choices=("auto", "cpu", "cuda", "mps"),
         default="auto",
     )
     parser.add_argument(
