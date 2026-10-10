@@ -220,7 +220,7 @@ def _evaluate(
     return metrics
 
 
-def main() -> int:
+def main() -> int:  # noqa: PLR0912
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--data-root", type=Path, required=True, help="FaceForensics++ root")
     parser.add_argument(
