@@ -93,3 +93,26 @@ def test_baseline_loss_decreases_or_stays_finite() -> None:
         for entry in out["history"]:
             assert np.isfinite(entry["train_loss"])
             assert entry["train_loss"] > 0
+
+
+def test_train_saves_independent_auroc_best_checkpoint() -> None:
+    pytest.importorskip("torch")
+    import json
+
+    from forge_detect.baseline_cnn import BaselineConfig, train_baseline_cnn
+    from forge_detect.datasets import ImageFolderDataset
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        _make_tiny_dataset(root)
+        ds = ImageFolderDataset(root / "real", root / "fake", target_size=(64, 64))
+        cfg = BaselineConfig(
+            epochs=2, batch_size=2, num_workers=0, device="cpu", checkpoint_dir=root / "runs"
+        )
+        out = train_baseline_cnn(ds, ds, cfg, pretrained=False)
+        run_dir = Path(out["run_dir"])  # type: ignore[arg-type]
+        assert (run_dir / "best.pt").exists() and (run_dir / "best_auc.pt").exists()
+        sel = json.loads((run_dir / "best_auc.json").read_text())
+        hist = out["history"]
+        assert sel["val_auroc"] == max(h["val_auroc"] for h in hist)
+        assert sel["epoch"] == max(range(len(hist)), key=lambda i: hist[i]["val_auroc"])

@@ -462,6 +462,9 @@ def _save_full_checkpoint(
         "scaler": scaler.state_dict() if scaler is not None else None,
         "epoch": epoch,
         "best_val_loss": best_val_loss,
+        "best_val_auroc": max(
+            (h.get("val_auroc", float("-inf")) for h in history), default=float("-inf")
+        ),
         "history": history,
     }
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -617,6 +620,17 @@ def train_baseline_cnn(
             if val_metrics["loss"] < best_val_loss:
                 best_val_loss = val_metrics["loss"]
                 torch.save(model.state_dict(), run_dir / "best.pt")
+            # Independent, prespecified selection rule: best validation AUROC.
+            # best.pt (lowest val loss) and best_auc.pt can be different epochs;
+            # both are reported, neither is chosen after seeing test results.
+            prev_best_auc = max(
+                (h.get("val_auroc", float("-inf")) for h in history), default=float("-inf")
+            )
+            if val_metrics.get("auroc", float("-inf")) > prev_best_auc:
+                torch.save(model.state_dict(), run_dir / "best_auc.pt")
+                (run_dir / "best_auc.json").write_text(
+                    json.dumps({"epoch": epoch, "val_auroc": val_metrics["auroc"]}, indent=2)
+                )
         torch.save(model.state_dict(), run_dir / "last.pt")
         scheduler.step()
         log["epoch_seconds"] = time.time() - t0

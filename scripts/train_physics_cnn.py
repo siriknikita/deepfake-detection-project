@@ -105,9 +105,7 @@ def _check_ff_splits_present(data_root: Path) -> None:
     if not missing:
         return
     base = "https://raw.githubusercontent.com/ondyari/FaceForensics/master/dataset/splits"
-    cmds = "\n".join(
-        f"  curl -L -o {splits_dir / n} {base}/{n}" for n in needed
-    )
+    cmds = "\n".join(f"  curl -L -o {splits_dir / n} {base}/{n}" for n in needed)
     msg = (
         f"Official FF++ split files missing under {splits_dir}: {missing}\n"
         f"Create the directory and download them:\n"
@@ -229,8 +227,7 @@ def main() -> int:
         "--celeb-data-root",
         type=Path,
         default=None,
-        help="Celeb-DF v2 root for cross-dataset eval. If omitted, only FF++ "
-        "test eval runs.",
+        help="Celeb-DF v2 root for cross-dataset eval. If omitted, only FF++ test eval runs.",
     )
     parser.add_argument("--compression", choices=("raw", "c23", "c40"), default="c23")
     parser.add_argument(
@@ -258,15 +255,13 @@ def main() -> int:
         "--val-fraction",
         type=float,
         default=0.15,
-        help="Fraction of videos held out for validation. Default 0.15 matches "
-        "pivot_study.py.",
+        help="Fraction of videos held out for validation. Default 0.15 matches pivot_study.py.",
     )
     parser.add_argument(
         "--test-fraction",
         type=float,
         default=0.15,
-        help="Fraction of videos held out for test. Default 0.15 matches "
-        "pivot_study.py.",
+        help="Fraction of videos held out for test. Default 0.15 matches pivot_study.py.",
     )
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--epochs", type=int, default=30)
@@ -367,7 +362,8 @@ def main() -> int:
         from forge_detect.datasets import parse_channel_spec, total_channels
 
         channel_sources = parse_channel_spec(
-            args.channels, physics_variant=args.variant,
+            args.channels,
+            physics_variant=args.variant,
         )
         in_channels = total_channels(channel_sources)
         log_tag = f"physics-{in_channels}ch-{args.channels.replace(',', '+')}"
@@ -381,8 +377,7 @@ def main() -> int:
     print(f"[{log_tag}] in_channels = {in_channels}")
     if channel_sources is not None:
         print(
-            f"[{log_tag}] channel sources: "
-            f"{[s.name for s in channel_sources]}",
+            f"[{log_tag}] channel sources: {[s.name for s in channel_sources]}",
         )
 
     print(f"[{log_tag}] building FF++ datasets ...")
@@ -393,17 +388,23 @@ def main() -> int:
         _check_ff_splits_present(args.data_root)
         print(f"[{log_tag}] using official FF++ splits/<name>.json")
         train_ds = _build_ff_dataset(
-            args, ff_split="train", physics_variant=args.variant,
+            args,
+            ff_split="train",
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_train,
             channel_sources=channel_sources,
         )
         val_ds = _build_ff_dataset(
-            args, ff_split="val", physics_variant=args.variant,
+            args,
+            ff_split="val",
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
             channel_sources=channel_sources,
         )
         test_ds = _build_ff_dataset(
-            args, ff_split="test", physics_variant=args.variant,
+            args,
+            ff_split="test",
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
             channel_sources=channel_sources,
         )
@@ -427,17 +428,23 @@ def main() -> int:
             "identities between train and val (see --use-ff-splits).",
         )
         train_ds = _build_ff_dataset(
-            args, subset_video_ids=train_vids, physics_variant=args.variant,
+            args,
+            subset_video_ids=train_vids,
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_train,
             channel_sources=channel_sources,
         )
         val_ds = _build_ff_dataset(
-            args, subset_video_ids=val_vids, physics_variant=args.variant,
+            args,
+            subset_video_ids=val_vids,
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
             channel_sources=channel_sources,
         )
         test_ds = _build_ff_dataset(
-            args, subset_video_ids=test_vids, physics_variant=args.variant,
+            args,
+            subset_video_ids=test_vids,
+            physics_variant=args.variant,
             frames_per_video=args.frames_per_video_eval,
             channel_sources=channel_sources,
         )
@@ -448,7 +455,11 @@ def main() -> int:
     if not args.skip_train:
         t_train_start = time.time()
         run_dir, _train_out = _train(
-            args, train_ds, val_ds, in_channels=in_channels, log_tag=log_tag,
+            args,
+            train_ds,
+            val_ds,
+            in_channels=in_channels,
+            log_tag=log_tag,
         )
         train_seconds = time.time() - t_train_start
     else:
@@ -472,6 +483,15 @@ def main() -> int:
     )
     load_weights(model, best_path)
 
+    # Prespecified checkpoint-selection rules, all evaluated and all reported:
+    #   best_loss = best.pt (lowest val loss), best_auc = best_auc.pt (highest val
+    #   AUROC, when the trainer produced it), last = last.pt (end of schedule).
+    checkpoints: dict[str, Path] = {"best_loss": best_path}
+    if (run_dir / "best_auc.pt").exists():
+        checkpoints["best_auc"] = run_dir / "best_auc.pt"
+    if (run_dir / "last.pt").exists():
+        checkpoints["last"] = run_dir / "last.pt"
+
     report: dict[str, Any] = {
         "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
         "train_seconds": train_seconds,
@@ -484,24 +504,45 @@ def main() -> int:
 
     report["ff_test"] = _evaluate(args, model, test_ds, label="FF++ test")
 
+    celeb_ds = None
     if args.celeb_data_root is not None:
         celeb_ds = _build_celeb_dataset(args, channel_sources=channel_sources)
         report["n_frames"]["test_celeb"] = len(celeb_ds)
         report["celeb_test"] = _evaluate(args, model, celeb_ds, label="CelebDF testing list")
 
+    report["checkpoints"] = {"best_loss": {"path": str(best_path), "ff_test": report["ff_test"]}}
+    if celeb_ds is not None:
+        report["checkpoints"]["best_loss"]["celeb_test"] = report["celeb_test"]
+    if (run_dir / "best_auc.json").exists():
+        report["checkpoints"]["best_loss"]["note"] = "selected by lowest val loss"
+        report["best_auc_selection"] = json.loads((run_dir / "best_auc.json").read_text())
+    for name, path in checkpoints.items():
+        if name == "best_loss":
+            continue
+        load_weights(model, path)
+        entry: dict[str, Any] = {"path": str(path)}
+        entry["ff_test"] = _evaluate(args, model, test_ds, label=f"FF++ test [{name}]")
+        if celeb_ds is not None:
+            entry["celeb_test"] = _evaluate(
+                args, model, celeb_ds, label=f"CelebDF testing list [{name}]"
+            )
+        report["checkpoints"][name] = entry
+
     out_path = run_dir / "report.json"
     out_path.write_text(json.dumps(report, indent=2, default=str))
     print(f"\n[physics-6ch] wrote {out_path}")
 
-    print("\n=== summary ===")
-    for split, metrics in report.items():
-        if not isinstance(metrics, dict) or "auroc" not in metrics:
-            continue
-        line = f"  {split}: frame_auroc={metrics['auroc']:.4f}"
-        if "video_auroc_mean" in metrics:
-            line += f" video_auroc_mean={metrics['video_auroc_mean']:.4f}"
-            line += f" video_auroc_max={metrics['video_auroc_max']:.4f}"
-        print(line)
+    print("\n=== summary (all prespecified checkpoints) ===")
+    for name, entry in report["checkpoints"].items():
+        for split in ("ff_test", "celeb_test"):
+            metrics = entry.get(split)
+            if not isinstance(metrics, dict) or "auroc" not in metrics:
+                continue
+            line = f"  [{name}] {split}: frame_auroc={metrics['auroc']:.4f}"
+            if "video_auroc_mean" in metrics:
+                line += f" video_auroc_mean={metrics['video_auroc_mean']:.4f}"
+                line += f" video_auroc_max={metrics['video_auroc_max']:.4f}"
+            print(line)
 
     return 0
 
