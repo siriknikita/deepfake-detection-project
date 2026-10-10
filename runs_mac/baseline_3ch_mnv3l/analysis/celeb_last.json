@@ -1,0 +1,16 @@
+{
+  "model": "baseline",
+  "weights": "runs_mac/baseline_3ch_mnv3l/baseline_run/last.pt",
+  "celeb_data_root": "/Users/mykytasiryk/Development/datasets/Celeb-DF-v2",
+  "use_face_crops": true,
+  "accuracy": 0.628957528957529,
+  "n_real": 1780.0,
+  "n_fake": 3400.0,
+  "auroc": 0.6220225545274289,
+  "video_auroc_mean": 0.674438202247191,
+  "video_auroc_max": 0.6599223397224059,
+  "video_accuracy_mean": 0.6814671814671814,
+  "n_videos": 518.0,
+  "n_video_real": 178.0,
+  "n_video_fake": 340.0
+}

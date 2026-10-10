@@ -1,0 +1,118 @@
+{
+  "args": {
+    "data_root": "/Users/mykytasiryk/Development/datasets/FaceForensics++",
+    "celeb_data_root": "/Users/mykytasiryk/Development/datasets/Celeb-DF-v2",
+    "compression": "c23",
+    "variant": "heuristic",
+    "frames_per_video_train": 10,
+    "frames_per_video_eval": 10,
+    "seed": 0,
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "image_size": 256,
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.0001,
+    "amp": false,
+    "no_balance": false,
+    "no_augment": false,
+    "freeze_bn": false,
+    "use_ff_splits": true,
+    "use_face_crops": true,
+    "channels": "rgb,physics,frequency:compute",
+    "device": "cpu",
+    "num_workers": 1,
+    "no_pretrained": false,
+    "backbone": "mobilenet_v3_large",
+    "runs_dir": "runs_mac/physics_9ch_mnv3l_fixedsolver",
+    "skip_train": true
+  },
+  "train_seconds": 0.0,
+  "n_frames": {
+    "train": 36000,
+    "val": 7000,
+    "test_ff": 7000,
+    "test_celeb": 5180
+  },
+  "ff_test": {
+    "accuracy": 0.7531428571428571,
+    "n_real": 1400.0,
+    "n_fake": 5600.0,
+    "auroc": 0.6469051658163265,
+    "video_auroc_mean": 0.7105612244897961,
+    "video_auroc_max": 0.8451020408163264,
+    "video_accuracy_mean": 0.5892857142857143,
+    "n_videos": 280.0,
+    "n_video_real": 140.0,
+    "n_video_fake": 140.0
+  },
+  "celeb_test": {
+    "accuracy": 0.605984555984556,
+    "n_real": 1780.0,
+    "n_fake": 3400.0,
+    "auroc": 0.47471455717118305,
+    "video_auroc_mean": 0.47265366820885657,
+    "video_auroc_max": 0.43659947124917375,
+    "video_accuracy_mean": 0.6351351351351351,
+    "n_videos": 518.0,
+    "n_video_real": 178.0,
+    "n_video_fake": 340.0
+  },
+  "checkpoints": {
+    "best_loss": {
+      "path": "runs_mac/physics_9ch_mnv3l_fixedsolver/best.pt",
+      "ff_test": {
+        "accuracy": 0.7531428571428571,
+        "n_real": 1400.0,
+        "n_fake": 5600.0,
+        "auroc": 0.6469051658163265,
+        "video_auroc_mean": 0.7105612244897961,
+        "video_auroc_max": 0.8451020408163264,
+        "video_accuracy_mean": 0.5892857142857143,
+        "n_videos": 280.0,
+        "n_video_real": 140.0,
+        "n_video_fake": 140.0
+      },
+      "celeb_test": {
+        "accuracy": 0.605984555984556,
+        "n_real": 1780.0,
+        "n_fake": 3400.0,
+        "auroc": 0.47471455717118305,
+        "video_auroc_mean": 0.47265366820885657,
+        "video_auroc_max": 0.43659947124917375,
+        "video_accuracy_mean": 0.6351351351351351,
+        "n_videos": 518.0,
+        "n_video_real": 178.0,
+        "n_video_fake": 340.0
+      }
+    },
+    "last": {
+      "path": "runs_mac/physics_9ch_mnv3l_fixedsolver/last.pt",
+      "ff_test": {
+        "accuracy": 0.7502857142857143,
+        "n_real": 1400.0,
+        "n_fake": 5600.0,
+        "auroc": 0.6744899234693877,
+        "video_auroc_mean": 0.758061224489796,
+        "video_auroc_max": 0.709515306122449,
+        "video_accuracy_mean": 0.6464285714285715,
+        "n_videos": 280.0,
+        "n_video_real": 140.0,
+        "n_video_fake": 140.0
+      },
+      "celeb_test": {
+        "accuracy": 0.6040540540540541,
+        "n_real": 1780.0,
+        "n_fake": 3400.0,
+        "auroc": 0.5346637475214805,
+        "video_auroc_mean": 0.5736781229345671,
+        "video_auroc_max": 0.5232980832782551,
+        "video_accuracy_mean": 0.6525096525096525,
+        "n_videos": 518.0,
+        "n_video_real": 178.0,
+        "n_video_fake": 340.0
+      }
+    }
+  }
+}

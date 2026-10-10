@@ -1,0 +1,61 @@
+[per-method] data_root      = /Users/mykytasiryk/Development/datasets/FaceForensics++
+[per-method] baseline best  = .
+[per-method] physics  best  = runs_mac/physics_9ch_effb0_fixedsolver/last.pt
+[per-method] frames_subdir  = frames_faces
+[per-method] split source   = official FF++
+[per-method] methods        = ('Deepfakes', 'Face2Face', 'FaceSwap', 'NeuralTextures')
+[per-method] physics in_channels = 9
+[per-method] channel sources: ['physics:heuristic', 'frequency:compute']
+
+[per-method] === Deepfakes ===
+  physics  test set: 2800 frames
+  physics : frame=0.7949 video_mean=0.8759 video_max=0.8094
+
+[per-method] === Face2Face ===
+  physics  test set: 2800 frames
+  physics : frame=0.7215 video_mean=0.8146 video_max=0.7507
+
+[per-method] === FaceSwap ===
+  physics  test set: 2800 frames
+  physics : frame=0.7359 video_mean=0.8179 video_max=0.7702
+
+[per-method] === NeuralTextures ===
+  physics  test set: 2800 frames
+  physics : frame=0.6322 video_mean=0.6907 video_max=0.6404
+
+[per-method] === Combined (all methods) ===
+  physics  test set: 7000 frames
+
+========================================================================================
+FF++ c23 per-method test-set comparison: baseline_3ch vs physics_6ch
+========================================================================================
+
+frame AUROC
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes                n/a      0.7949       n/a 
+Face2Face                n/a      0.7215       n/a 
+FaceSwap                 n/a      0.7359       n/a 
+NeuralTextures           n/a      0.6322       n/a 
+Combined                 n/a      0.7211       n/a 
+
+video AUROC (mean-pool)
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes                n/a      0.8759       n/a 
+Face2Face                n/a      0.8146       n/a 
+FaceSwap                 n/a      0.8179       n/a 
+NeuralTextures           n/a      0.6907       n/a 
+Combined                 n/a      0.8080       n/a 
+
+video AUROC (max-pool)
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes                n/a      0.8094       n/a 
+Face2Face                n/a      0.7507       n/a 
+FaceSwap                 n/a      0.7702       n/a 
+NeuralTextures           n/a      0.6404       n/a 
+Combined                 n/a      0.8999       n/a 
+
+========================================================================================
+[per-method] wrote runs_mac/physics_9ch_effb0_fixedsolver/analysis/per_method_last.json

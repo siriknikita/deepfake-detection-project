@@ -1,0 +1,150 @@
+{
+  "args": {
+    "data_root": "/Users/mykytasiryk/Development/datasets/FaceForensics++",
+    "celeb_data_root": "/Users/mykytasiryk/Development/datasets/Celeb-DF-v2",
+    "compression": "c23",
+    "variant": "heuristic",
+    "frames_per_video_train": 10,
+    "frames_per_video_eval": 10,
+    "seed": 0,
+    "val_fraction": 0.15,
+    "test_fraction": 0.15,
+    "image_size": 256,
+    "epochs": 20,
+    "batch_size": 16,
+    "learning_rate": 0.0002,
+    "weight_decay": 0.0001,
+    "amp": false,
+    "no_balance": false,
+    "no_augment": false,
+    "freeze_bn": false,
+    "use_ff_splits": true,
+    "use_face_crops": true,
+    "channels": "rgb,physics,frequency:compute",
+    "device": "mps",
+    "num_workers": 4,
+    "no_pretrained": false,
+    "backbone": "efficientnet_b0",
+    "runs_dir": "runs_mac/physics_9ch_effb0_fixedsolver",
+    "skip_train": false
+  },
+  "train_seconds": 7829.8617379665375,
+  "n_frames": {
+    "train": 36000,
+    "val": 7000,
+    "test_ff": 7000,
+    "test_celeb": 5180
+  },
+  "ff_test": {
+    "accuracy": 0.715,
+    "n_real": 1400.0,
+    "n_fake": 5600.0,
+    "auroc": 0.7009234693877551,
+    "video_auroc_mean": 0.7634183673469388,
+    "video_auroc_max": 0.9175,
+    "video_accuracy_mean": 0.6821428571428572,
+    "n_videos": 280.0,
+    "n_video_real": 140.0,
+    "n_video_fake": 140.0
+  },
+  "celeb_test": {
+    "accuracy": 0.5523166023166023,
+    "n_real": 1780.0,
+    "n_fake": 3400.0,
+    "auroc": 0.5944262227362855,
+    "video_auroc_mean": 0.62911434236616,
+    "video_auroc_max": 0.5746364838070059,
+    "video_accuracy_mean": 0.5772200772200772,
+    "n_videos": 518.0,
+    "n_video_real": 178.0,
+    "n_video_fake": 340.0
+  },
+  "checkpoints": {
+    "best_loss": {
+      "path": "runs_mac/physics_9ch_effb0_fixedsolver/best.pt",
+      "ff_test": {
+        "accuracy": 0.715,
+        "n_real": 1400.0,
+        "n_fake": 5600.0,
+        "auroc": 0.7009234693877551,
+        "video_auroc_mean": 0.7634183673469388,
+        "video_auroc_max": 0.9175,
+        "video_accuracy_mean": 0.6821428571428572,
+        "n_videos": 280.0,
+        "n_video_real": 140.0,
+        "n_video_fake": 140.0
+      },
+      "celeb_test": {
+        "accuracy": 0.5523166023166023,
+        "n_real": 1780.0,
+        "n_fake": 3400.0,
+        "auroc": 0.5944262227362855,
+        "video_auroc_mean": 0.62911434236616,
+        "video_auroc_max": 0.5746364838070059,
+        "video_accuracy_mean": 0.5772200772200772,
+        "n_videos": 518.0,
+        "n_video_real": 178.0,
+        "n_video_fake": 340.0
+      },
+      "note": "selected by lowest val loss"
+    },
+    "best_auc": {
+      "path": "runs_mac/physics_9ch_effb0_fixedsolver/best_auc.pt",
+      "ff_test": {
+        "accuracy": 0.7021428571428572,
+        "n_real": 1400.0,
+        "n_fake": 5600.0,
+        "auroc": 0.7364702806122448,
+        "video_auroc_mean": 0.8321938775510205,
+        "video_auroc_max": 0.9170408163265307,
+        "video_accuracy_mean": 0.8035714285714286,
+        "n_videos": 280.0,
+        "n_video_real": 140.0,
+        "n_video_fake": 140.0
+      },
+      "celeb_test": {
+        "accuracy": 0.582046332046332,
+        "n_real": 1780.0,
+        "n_fake": 3400.0,
+        "auroc": 0.5973711996034368,
+        "video_auroc_mean": 0.6379543952412425,
+        "video_auroc_max": 0.5871530072703238,
+        "video_accuracy_mean": 0.638996138996139,
+        "n_videos": 518.0,
+        "n_video_real": 178.0,
+        "n_video_fake": 340.0
+      }
+    },
+    "last": {
+      "path": "runs_mac/physics_9ch_effb0_fixedsolver/last.pt",
+      "ff_test": {
+        "accuracy": 0.7492857142857143,
+        "n_real": 1400.0,
+        "n_fake": 5600.0,
+        "auroc": 0.7211278698979592,
+        "video_auroc_mean": 0.8079591836734694,
+        "video_auroc_max": 0.8998724489795918,
+        "video_accuracy_mean": 0.7285714285714285,
+        "n_videos": 280.0,
+        "n_video_real": 140.0,
+        "n_video_fake": 140.0
+      },
+      "celeb_test": {
+        "accuracy": 0.6117760617760618,
+        "n_real": 1780.0,
+        "n_fake": 3400.0,
+        "auroc": 0.5824548083278256,
+        "video_auroc_mean": 0.6299735624586912,
+        "video_auroc_max": 0.5921348314606742,
+        "video_accuracy_mean": 0.6621621621621622,
+        "n_videos": 518.0,
+        "n_video_real": 178.0,
+        "n_video_fake": 340.0
+      }
+    }
+  },
+  "best_auc_selection": {
+    "epoch": 10,
+    "val_auroc": 0.7320668367346939
+  }
+}

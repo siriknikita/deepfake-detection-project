@@ -1,0 +1,20 @@
+[physics-9ch-rgb+physics+frequency:compute] runs_dir = runs_mac/physics_9ch_mnv3l_fixedsolver
+[physics-9ch-rgb+physics+frequency:compute] variant = heuristic
+[physics-9ch-rgb+physics+frequency:compute] in_channels = 9
+[physics-9ch-rgb+physics+frequency:compute] channel sources: ['physics:heuristic', 'frequency:compute']
+[physics-9ch-rgb+physics+frequency:compute] building FF++ datasets ...
+[physics-9ch-rgb+physics+frequency:compute] using official FF++ splits/<name>.json
+[physics-9ch-rgb+physics+frequency:compute] frames: train=36000 val=7000 test=7000
+[eval] FF++ test: 7000 frames
+[eval] CelebDF testing list: 5180 frames
+[eval] FF++ test [last]: 7000 frames
+[eval] CelebDF testing list [last]: 5180 frames
+
+[physics-6ch] wrote runs_mac/physics_9ch_mnv3l_fixedsolver/report.json
+
+=== summary (all prespecified checkpoints) ===
+  [best_loss] ff_test: frame_auroc=0.6469 video_auroc_mean=0.7106 video_auroc_max=0.8451
+  [best_loss] celeb_test: frame_auroc=0.4747 video_auroc_mean=0.4727 video_auroc_max=0.4366
+  [last] ff_test: frame_auroc=0.6745 video_auroc_mean=0.7581 video_auroc_max=0.7095
+  [last] celeb_test: frame_auroc=0.5347 video_auroc_mean=0.5737 video_auroc_max=0.5233
+exit 143

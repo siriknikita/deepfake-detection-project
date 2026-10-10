@@ -1,0 +1,22 @@
+[eval-celeb] model = baseline
+[eval-celeb] weights = runs_mac/baseline_3ch_mnv3l/baseline_run/last.pt
+[eval-celeb] celeb_data_root = /Users/mykytasiryk/Development/datasets/Celeb-DF-v2
+[eval-celeb] frames_subdir = frames_faces
+[eval-celeb] in_channels = 3
+[eval-celeb] building dataset (Celeb-DF testing list, 518 videos) ...
+[eval-celeb] dataset: 5180 frames across 518 videos
+[eval-celeb] building model and loading weights ...
+[eval-celeb] evaluating on mps ...
+
+=== Celeb-DF v2 cross-dataset evaluation ===
+  weights:                runs_mac/baseline_3ch_mnv3l/baseline_run/last.pt
+  model:                  baseline
+  frames evaluated:       5180
+  frame AUROC:            0.6220
+  frame accuracy:         0.6290
+  video AUROC (mean):     0.6744
+  video AUROC (max):      0.6599
+  video accuracy (mean):  0.6815
+  test split: 178 real videos, 340 fake videos
+
+[eval-celeb] wrote runs_mac/baseline_3ch_mnv3l/analysis/celeb_last.json

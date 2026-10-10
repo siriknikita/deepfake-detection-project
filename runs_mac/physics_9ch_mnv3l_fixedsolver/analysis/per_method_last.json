@@ -1,0 +1,77 @@
+{
+  "Deepfakes": {
+    "baseline": null,
+    "physics": {
+      "accuracy": 0.6296428571428572,
+      "n_real": 1400.0,
+      "n_fake": 1400.0,
+      "auroc": 0.7579752551020409,
+      "video_auroc_mean": 0.8543877551020408,
+      "video_auroc_max": 0.6633673469387755,
+      "video_accuracy_mean": 0.6321428571428571,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0
+    }
+  },
+  "Face2Face": {
+    "baseline": null,
+    "physics": {
+      "accuracy": 0.5964285714285714,
+      "n_real": 1400.0,
+      "n_fake": 1400.0,
+      "auroc": 0.6488293367346938,
+      "video_auroc_mean": 0.748265306122449,
+      "video_auroc_max": 0.6019132653061225,
+      "video_accuracy_mean": 0.625,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0
+    }
+  },
+  "FaceSwap": {
+    "baseline": null,
+    "physics": {
+      "accuracy": 0.6121428571428571,
+      "n_real": 1400.0,
+      "n_fake": 1400.0,
+      "auroc": 0.699106887755102,
+      "video_auroc_mean": 0.7975000000000001,
+      "video_auroc_max": 0.6612244897959184,
+      "video_accuracy_mean": 0.6392857142857142,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0
+    }
+  },
+  "NeuralTextures": {
+    "baseline": null,
+    "physics": {
+      "accuracy": 0.5571428571428572,
+      "n_real": 1400.0,
+      "n_fake": 1400.0,
+      "auroc": 0.5920482142857143,
+      "video_auroc_mean": 0.6462244897959184,
+      "video_auroc_max": 0.5574489795918368,
+      "video_accuracy_mean": 0.5964285714285714,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0
+    }
+  },
+  "Combined": {
+    "baseline": null,
+    "physics": {
+      "accuracy": 0.7502857142857143,
+      "n_real": 1400.0,
+      "n_fake": 5600.0,
+      "auroc": 0.6744899234693877,
+      "video_auroc_mean": 0.758061224489796,
+      "video_auroc_max": 0.709515306122449,
+      "video_accuracy_mean": 0.6464285714285715,
+      "n_videos": 280.0,
+      "n_video_real": 140.0,
+      "n_video_fake": 140.0
+    }
+  }
+}

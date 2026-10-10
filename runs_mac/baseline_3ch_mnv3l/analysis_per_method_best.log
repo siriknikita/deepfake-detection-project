@@ -1,0 +1,60 @@
+[per-method] data_root      = /Users/mykytasiryk/Development/datasets/FaceForensics++
+[per-method] baseline best  = runs_mac/baseline_3ch_mnv3l/baseline_run/best.pt
+[per-method] physics  best  = .
+[per-method] frames_subdir  = frames_faces
+[per-method] split source   = official FF++
+[per-method] methods        = ('Deepfakes', 'Face2Face', 'FaceSwap', 'NeuralTextures')
+[per-method] physics in_channels = 6
+
+[per-method] === Deepfakes ===
+  baseline test set: 2800 frames
+  baseline: frame=0.7758 video_mean=0.8423 video_max=0.8097
+
+[per-method] === Face2Face ===
+  baseline test set: 2800 frames
+  baseline: frame=0.7238 video_mean=0.7836 video_max=0.7373
+
+[per-method] === FaceSwap ===
+  baseline test set: 2800 frames
+  baseline: frame=0.7211 video_mean=0.7841 video_max=0.7679
+
+[per-method] === NeuralTextures ===
+  baseline test set: 2800 frames
+  baseline: frame=0.5901 video_mean=0.6240 video_max=0.6117
+
+[per-method] === Combined (all methods) ===
+  baseline test set: 7000 frames
+
+========================================================================================
+FF++ c23 per-method test-set comparison: baseline_3ch vs physics_6ch
+========================================================================================
+
+frame AUROC
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes              0.7758       n/a        n/a 
+Face2Face              0.7238       n/a        n/a 
+FaceSwap               0.7211       n/a        n/a 
+NeuralTextures         0.5901       n/a        n/a 
+Combined               0.7027       n/a        n/a 
+
+video AUROC (mean-pool)
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes              0.8423       n/a        n/a 
+Face2Face              0.7836       n/a        n/a 
+FaceSwap               0.7841       n/a        n/a 
+NeuralTextures         0.6240       n/a        n/a 
+Combined               0.7781       n/a        n/a 
+
+video AUROC (max-pool)
+method               baseline    physics      delta
+--------------------------------------------------
+Deepfakes              0.8097       n/a        n/a 
+Face2Face              0.7373       n/a        n/a 
+FaceSwap               0.7679       n/a        n/a 
+NeuralTextures         0.6117       n/a        n/a 
+Combined               0.8916       n/a        n/a 
+
+========================================================================================
+[per-method] wrote runs_mac/baseline_3ch_mnv3l/analysis/per_method_best.json

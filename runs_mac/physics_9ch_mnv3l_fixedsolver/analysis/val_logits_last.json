@@ -1,0 +1,69 @@
+{
+  "weights": "runs_mac/physics_9ch_mnv3l_fixedsolver/last.pt",
+  "split": "val",
+  "n_frames": 7000,
+  "auroc": 0.6556025510204081,
+  "log_loss": 1.7796316679313264,
+  "accuracy_at_0": 0.7338571428571429,
+  "logit": {
+    "mean": 9.539005659817319,
+    "std": 9.134021938584963,
+    "abs_p50": 9.738336086273193,
+    "abs_p90": 21.5096363067627,
+    "abs_max": 39.80466842651367
+  },
+  "confident_fraction": 0.8642857142857143,
+  "confidently_wrong_fraction": 0.19685714285714287,
+  "wrong_fraction": 0.2661428571428571,
+  "share_of_log_loss_from_confidently_wrong": 0.9228484287680214,
+  "per_label": {
+    "0": {
+      "n": 1400,
+      "logit_mean": 5.531261144901759,
+      "logit_std": 8.28619649988116,
+      "accuracy": 0.31
+    },
+    "1": {
+      "n": 5600,
+      "logit_mean": 10.540941788546208,
+      "logit_std": 9.06108728736609,
+      "accuracy": 0.8398214285714286
+    }
+  },
+  "per_method": {
+    "Deepfakes": {
+      "n_fake_frames": 1400,
+      "auroc_vs_reals": 0.7455010204081632,
+      "fake_accuracy": 0.8957142857142857,
+      "fake_logit_mean": 13.836051686599053,
+      "confidently_wrong_fraction": 0.06
+    },
+    "Face2Face": {
+      "n_fake_frames": 1400,
+      "auroc_vs_reals": 0.6284045918367347,
+      "fake_accuracy": 0.8328571428571429,
+      "fake_logit_mean": 9.356130047316796,
+      "confidently_wrong_fraction": 0.09928571428571428
+    },
+    "FaceSwap": {
+      "n_fake_frames": 1400,
+      "auroc_vs_reals": 0.6789571428571428,
+      "fake_accuracy": 0.8535714285714285,
+      "fake_logit_mean": 11.323546653025385,
+      "confidently_wrong_fraction": 0.09357142857142857
+    },
+    "NeuralTextures": {
+      "n_fake_frames": 1400,
+      "auroc_vs_reals": 0.5695474489795919,
+      "fake_accuracy": 0.7771428571428571,
+      "fake_logit_mean": 7.6480387672436025,
+      "confidently_wrong_fraction": 0.145
+    },
+    "real": {
+      "n_frames": 1400,
+      "real_accuracy": 0.31,
+      "real_logit_mean": 5.531261144901759,
+      "confidently_wrong_fraction": 0.5864285714285714
+    }
+  }
+}

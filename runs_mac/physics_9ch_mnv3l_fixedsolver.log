@@ -1,0 +1,518 @@
+[physics-9ch-rgb+physics+frequency:compute] runs_dir = runs_mac/physics_9ch_mnv3l_fixedsolver
+[physics-9ch-rgb+physics+frequency:compute] variant = heuristic
+[physics-9ch-rgb+physics+frequency:compute] in_channels = 9
+[physics-9ch-rgb+physics+frequency:compute] channel sources: ['physics:heuristic', 'frequency:compute']
+[physics-9ch-rgb+physics+frequency:compute] building FF++ datasets ...
+[physics-9ch-rgb+physics+frequency:compute] using official FF++ splits/<name>.json
+[physics-9ch-rgb+physics+frequency:compute] frames: train=36000 val=7000 test=7000
+[physics-9ch-rgb+physics+frequency:compute] training on device=mps for 20 epochs
+[physics-9ch-rgb+physics+frequency:compute] no checkpoint at runs_mac/physics_9ch_mnv3l_fixedsolver/checkpoint.pt — starting fresh
+  [profile] batch0: img(mean=0.397 std=0.336) label_mean=0.625 (=fake fraction; ~0.5 means WRS works) logits(mean=0.001 std=0.041 range=[-0.032,0.109])
+  [profile] batch0 post-backward: |grad|=0.7547 zero-grad-tensors=0/174 loss=0.6961
+    step  100: loss=0.7602 logit(mean=-0.322 std=0.408) |grad|=1.000 running_acc=0.509
+    step  200: loss=0.7849 logit(mean=-0.201 std=0.318) |grad|=1.000 running_acc=0.501
+    step  300: loss=0.6742 logit(mean=+0.143 std=0.265) |grad|=1.000 running_acc=0.517
+    step  400: loss=0.6627 logit(mean=-0.063 std=0.492) |grad|=1.000 running_acc=0.527
+    step  500: loss=0.6431 logit(mean=+0.082 std=0.221) |grad|=1.000 running_acc=0.527
+    step  600: loss=0.6226 logit(mean=-0.076 std=0.510) |grad|=1.000 running_acc=0.533
+    step  700: loss=0.5689 logit(mean=+0.139 std=0.373) |grad|=1.000 running_acc=0.541
+    step  800: loss=0.7012 logit(mean=-0.248 std=0.328) |grad|=1.000 running_acc=0.544
+    step  900: loss=0.6631 logit(mean=-0.203 std=0.337) |grad|=1.000 running_acc=0.546
+    step 1000: loss=0.6697 logit(mean=+0.050 std=0.260) |grad|=1.000 running_acc=0.548
+    step 1100: loss=0.6229 logit(mean=+0.095 std=0.576) |grad|=1.000 running_acc=0.551
+    step 1200: loss=0.7283 logit(mean=+0.183 std=0.462) |grad|=1.000 running_acc=0.552
+    step 1300: loss=0.7253 logit(mean=-0.032 std=0.303) |grad|=1.000 running_acc=0.552
+    step 1400: loss=0.6520 logit(mean=+0.116 std=0.383) |grad|=1.000 running_acc=0.555
+    step 1500: loss=0.6930 logit(mean=-0.147 std=0.436) |grad|=1.000 running_acc=0.558
+    step 1600: loss=0.6416 logit(mean=-0.139 std=0.408) |grad|=1.000 running_acc=0.559
+    step 1700: loss=0.5803 logit(mean=-0.140 std=0.530) |grad|=1.000 running_acc=0.562
+    step 1800: loss=0.6805 logit(mean=+0.093 std=0.438) |grad|=1.000 running_acc=0.563
+    step 1900: loss=0.6290 logit(mean=-0.057 std=0.427) |grad|=1.000 running_acc=0.564
+    step 2000: loss=0.7463 logit(mean=+0.064 std=0.595) |grad|=1.000 running_acc=0.566
+    step 2100: loss=0.5760 logit(mean=-0.046 std=0.483) |grad|=1.000 running_acc=0.567
+    step 2200: loss=0.6671 logit(mean=+0.080 std=0.485) |grad|=1.000 running_acc=0.569
+[physics-9ch-rgb+physics+frequency:compute] epoch 0: epoch=0.0000 train_loss=0.6816 train_accuracy=0.5694 train_auroc=0.5941 val_loss=0.5575 val_accuracy=0.7113 val_auroc=0.6058 epoch_seconds=230.2376
+  [profile] batch0: img(mean=0.396 std=0.330) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=-0.007 std=0.716 range=[-1.111,1.665])
+  [profile] batch0 post-backward: |grad|=4.7530 zero-grad-tensors=0/174 loss=0.7827
+    step  100: loss=0.5585 logit(mean=+0.051 std=0.466) |grad|=1.000 running_acc=0.594
+    step  200: loss=0.5779 logit(mean=-0.002 std=0.616) |grad|=1.000 running_acc=0.602
+    step  300: loss=0.5192 logit(mean=+0.134 std=0.695) |grad|=1.000 running_acc=0.608
+    step  400: loss=0.6273 logit(mean=+0.048 std=0.787) |grad|=1.000 running_acc=0.606
+    step  500: loss=0.6929 logit(mean=-0.034 std=0.771) |grad|=1.000 running_acc=0.605
+    step  600: loss=0.6295 logit(mean=+0.050 std=0.649) |grad|=1.000 running_acc=0.605
+    step  700: loss=0.7836 logit(mean=+0.009 std=0.601) |grad|=1.000 running_acc=0.603
+    step  800: loss=0.5690 logit(mean=+0.069 std=0.660) |grad|=1.000 running_acc=0.604
+    step  900: loss=0.4933 logit(mean=+0.136 std=0.924) |grad|=1.000 running_acc=0.605
+    step 1000: loss=0.5914 logit(mean=-0.052 std=0.528) |grad|=1.000 running_acc=0.605
+    step 1100: loss=0.7187 logit(mean=+0.123 std=0.827) |grad|=1.000 running_acc=0.605
+    step 1200: loss=0.6911 logit(mean=+0.059 std=0.523) |grad|=1.000 running_acc=0.605
+    step 1300: loss=0.6080 logit(mean=+0.169 std=0.486) |grad|=1.000 running_acc=0.606
+    step 1400: loss=0.5689 logit(mean=+0.191 std=0.710) |grad|=1.000 running_acc=0.606
+    step 1500: loss=0.5588 logit(mean=+0.015 std=0.487) |grad|=1.000 running_acc=0.606
+    step 1600: loss=0.6551 logit(mean=+0.024 std=0.633) |grad|=1.000 running_acc=0.605
+    step 1700: loss=0.6884 logit(mean=+0.090 std=0.937) |grad|=1.000 running_acc=0.606
+    step 1800: loss=0.6203 logit(mean=+0.165 std=0.816) |grad|=1.000 running_acc=0.606
+    step 1900: loss=0.7358 logit(mean=+0.080 std=0.734) |grad|=1.000 running_acc=0.607
+    step 2000: loss=0.7128 logit(mean=+0.168 std=0.638) |grad|=1.000 running_acc=0.607
+    step 2100: loss=0.7375 logit(mean=+0.090 std=0.620) |grad|=1.000 running_acc=0.608
+    step 2200: loss=0.8598 logit(mean=-0.031 std=0.808) |grad|=1.000 running_acc=0.609
+[physics-9ch-rgb+physics+frequency:compute] epoch 1: epoch=1.0000 train_loss=0.6565 train_accuracy=0.6100 train_auroc=0.6536 val_loss=0.7715 val_accuracy=0.5033 val_auroc=0.6404 epoch_seconds=221.5074
+  [profile] batch0: img(mean=0.400 std=0.336) label_mean=0.500 (=fake fraction; ~0.5 means WRS works) logits(mean=-0.099 std=0.866 range=[-1.488,1.636])
+  [profile] batch0 post-backward: |grad|=6.2399 zero-grad-tensors=0/174 loss=0.5937
+    step  100: loss=0.6140 logit(mean=+0.043 std=0.816) |grad|=1.000 running_acc=0.629
+    step  200: loss=0.6223 logit(mean=-0.033 std=0.721) |grad|=1.000 running_acc=0.635
+    step  300: loss=0.5408 logit(mean=-0.001 std=0.878) |grad|=1.000 running_acc=0.625
+    step  400: loss=0.7512 logit(mean=+0.033 std=1.021) |grad|=1.000 running_acc=0.625
+    step  500: loss=0.5910 logit(mean=-0.040 std=0.873) |grad|=1.000 running_acc=0.627
+    step  600: loss=0.6063 logit(mean=-0.063 std=0.754) |grad|=1.000 running_acc=0.629
+    step  700: loss=0.5964 logit(mean=-0.013 std=0.893) |grad|=1.000 running_acc=0.630
+    step  800: loss=0.5267 logit(mean=+0.188 std=0.736) |grad|=1.000 running_acc=0.631
+    step  900: loss=0.7254 logit(mean=-0.087 std=0.886) |grad|=1.000 running_acc=0.633
+    step 1000: loss=0.7260 logit(mean=+0.096 std=0.652) |grad|=1.000 running_acc=0.633
+    step 1100: loss=0.6640 logit(mean=+0.040 std=0.984) |grad|=1.000 running_acc=0.635
+    step 1200: loss=0.6793 logit(mean=-0.071 std=0.757) |grad|=1.000 running_acc=0.633
+    step 1300: loss=0.7010 logit(mean=+0.083 std=0.655) |grad|=1.000 running_acc=0.634
+    step 1400: loss=0.5811 logit(mean=-0.016 std=0.862) |grad|=1.000 running_acc=0.632
+    step 1500: loss=0.6116 logit(mean=-0.113 std=0.928) |grad|=1.000 running_acc=0.633
+    step 1600: loss=0.7423 logit(mean=+0.012 std=0.899) |grad|=1.000 running_acc=0.635
+    step 1700: loss=0.4583 logit(mean=+0.246 std=1.020) |grad|=1.000 running_acc=0.636
+    step 1800: loss=0.5712 logit(mean=-0.155 std=1.227) |grad|=1.000 running_acc=0.638
+    step 1900: loss=0.5355 logit(mean=+0.125 std=1.076) |grad|=1.000 running_acc=0.639
+    step 2000: loss=0.6535 logit(mean=-0.023 std=0.883) |grad|=1.000 running_acc=0.638
+    step 2100: loss=0.5615 logit(mean=+0.157 std=1.251) |grad|=1.000 running_acc=0.640
+    step 2200: loss=0.7640 logit(mean=+0.048 std=0.990) |grad|=1.000 running_acc=0.640
+[physics-9ch-rgb+physics+frequency:compute] epoch 2: epoch=2.0000 train_loss=0.6321 train_accuracy=0.6409 train_auroc=0.6950 val_loss=0.6928 val_accuracy=0.5833 val_auroc=0.6449 epoch_seconds=216.2380
+  [profile] batch0: img(mean=0.407 std=0.338) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=-0.079 std=1.079 range=[-1.618,2.543])
+  [profile] batch0 post-backward: |grad|=8.1879 zero-grad-tensors=0/174 loss=0.6438
+    step  100: loss=0.5059 logit(mean=+0.277 std=0.896) |grad|=1.000 running_acc=0.649
+    step  200: loss=0.4798 logit(mean=+0.065 std=1.098) |grad|=1.000 running_acc=0.654
+    step  300: loss=0.5616 logit(mean=+0.134 std=1.130) |grad|=1.000 running_acc=0.659
+    step  400: loss=0.6511 logit(mean=-0.004 std=0.815) |grad|=1.000 running_acc=0.657
+    step  500: loss=0.4302 logit(mean=-0.119 std=1.259) |grad|=1.000 running_acc=0.658
+    step  600: loss=0.5826 logit(mean=+0.001 std=0.934) |grad|=1.000 running_acc=0.657
+    step  700: loss=0.5197 logit(mean=+0.244 std=0.883) |grad|=1.000 running_acc=0.659
+    step  800: loss=0.5890 logit(mean=+0.006 std=1.139) |grad|=1.000 running_acc=0.663
+    step  900: loss=0.5884 logit(mean=-0.085 std=0.967) |grad|=1.000 running_acc=0.666
+    step 1000: loss=0.6070 logit(mean=+0.141 std=1.056) |grad|=1.000 running_acc=0.665
+    step 1100: loss=0.5432 logit(mean=-0.057 std=1.185) |grad|=1.000 running_acc=0.667
+    step 1200: loss=0.4813 logit(mean=+0.130 std=1.302) |grad|=1.000 running_acc=0.669
+    step 1300: loss=0.5109 logit(mean=+0.114 std=1.220) |grad|=1.000 running_acc=0.671
+    step 1400: loss=0.5705 logit(mean=+0.199 std=1.789) |grad|=1.000 running_acc=0.672
+    step 1500: loss=0.5959 logit(mean=+0.094 std=1.266) |grad|=1.000 running_acc=0.672
+    step 1600: loss=0.5851 logit(mean=+0.237 std=1.243) |grad|=1.000 running_acc=0.673
+    step 1700: loss=0.5654 logit(mean=+0.097 std=1.013) |grad|=1.000 running_acc=0.673
+    step 1800: loss=0.7454 logit(mean=-0.033 std=1.116) |grad|=1.000 running_acc=0.673
+    step 1900: loss=0.6263 logit(mean=+0.331 std=1.336) |grad|=1.000 running_acc=0.673
+    step 2000: loss=0.9440 logit(mean=+0.010 std=1.341) |grad|=1.000 running_acc=0.673
+    step 2100: loss=0.6020 logit(mean=+0.040 std=1.060) |grad|=1.000 running_acc=0.674
+    step 2200: loss=0.5661 logit(mean=+0.216 std=1.186) |grad|=1.000 running_acc=0.673
+[physics-9ch-rgb+physics+frequency:compute] epoch 3: epoch=3.0000 train_loss=0.6021 train_accuracy=0.6734 train_auroc=0.7363 val_loss=0.5554 val_accuracy=0.7186 val_auroc=0.6293 epoch_seconds=217.1306
+  [profile] batch0: img(mean=0.388 std=0.329) label_mean=0.375 (=fake fraction; ~0.5 means WRS works) logits(mean=0.111 std=1.270 range=[-1.817,3.611])
+  [profile] batch0 post-backward: |grad|=9.7042 zero-grad-tensors=0/174 loss=0.7543
+    step  100: loss=0.5691 logit(mean=+0.120 std=1.245) |grad|=1.000 running_acc=0.667
+    step  200: loss=0.5777 logit(mean=+0.105 std=1.090) |grad|=1.000 running_acc=0.682
+    step  300: loss=0.5274 logit(mean=+0.103 std=1.146) |grad|=1.000 running_acc=0.677
+    step  400: loss=0.7618 logit(mean=-0.064 std=1.200) |grad|=1.000 running_acc=0.682
+    step  500: loss=0.6964 logit(mean=+0.041 std=1.395) |grad|=1.000 running_acc=0.687
+    step  600: loss=0.6746 logit(mean=+0.222 std=1.375) |grad|=1.000 running_acc=0.690
+    step  700: loss=0.5713 logit(mean=-0.006 std=1.070) |grad|=1.000 running_acc=0.690
+    step  800: loss=0.6640 logit(mean=+0.121 std=1.298) |grad|=1.000 running_acc=0.689
+    step  900: loss=0.5008 logit(mean=-0.050 std=1.317) |grad|=1.000 running_acc=0.690
+    step 1000: loss=0.3650 logit(mean=+0.242 std=1.624) |grad|=1.000 running_acc=0.690
+    step 1100: loss=0.6051 logit(mean=-0.088 std=1.201) |grad|=1.000 running_acc=0.690
+    step 1200: loss=0.3846 logit(mean=+0.111 std=1.825) |grad|=1.000 running_acc=0.691
+    step 1300: loss=0.4915 logit(mean=-0.059 std=1.321) |grad|=1.000 running_acc=0.693
+    step 1400: loss=0.4873 logit(mean=+0.058 std=1.635) |grad|=1.000 running_acc=0.693
+    step 1500: loss=0.6198 logit(mean=+0.094 std=1.462) |grad|=1.000 running_acc=0.693
+    step 1600: loss=0.3491 logit(mean=+0.323 std=1.820) |grad|=1.000 running_acc=0.693
+    step 1700: loss=0.5231 logit(mean=-0.026 std=1.223) |grad|=1.000 running_acc=0.695
+    step 1800: loss=0.5658 logit(mean=+0.006 std=0.924) |grad|=1.000 running_acc=0.695
+    step 1900: loss=0.5143 logit(mean=+0.029 std=1.277) |grad|=1.000 running_acc=0.696
+    step 2000: loss=0.3467 logit(mean=+0.407 std=1.498) |grad|=1.000 running_acc=0.696
+    step 2100: loss=0.5253 logit(mean=+0.090 std=1.222) |grad|=1.000 running_acc=0.695
+    step 2200: loss=0.6107 logit(mean=-0.003 std=1.369) |grad|=1.000 running_acc=0.696
+[physics-9ch-rgb+physics+frequency:compute] epoch 4: epoch=4.0000 train_loss=0.5771 train_accuracy=0.6955 train_auroc=0.7632 val_loss=0.6194 val_accuracy=0.6584 val_auroc=0.6728 epoch_seconds=225.7232
+  [profile] batch0: img(mean=0.402 std=0.336) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=0.154 std=1.551 range=[-1.636,3.709])
+  [profile] batch0 post-backward: |grad|=9.7663 zero-grad-tensors=0/174 loss=0.4027
+    step  100: loss=0.7006 logit(mean=+0.182 std=1.689) |grad|=1.000 running_acc=0.724
+    step  200: loss=0.7485 logit(mean=-0.024 std=1.558) |grad|=1.000 running_acc=0.724
+    step  300: loss=0.5853 logit(mean=+0.039 std=1.556) |grad|=1.000 running_acc=0.719
+    step  400: loss=0.4357 logit(mean=+0.089 std=1.621) |grad|=1.000 running_acc=0.719
+    step  500: loss=0.4004 logit(mean=-0.002 std=1.423) |grad|=1.000 running_acc=0.720
+    step  600: loss=0.5669 logit(mean=+0.164 std=1.492) |grad|=1.000 running_acc=0.720
+    step  700: loss=0.4767 logit(mean=+0.103 std=1.433) |grad|=1.000 running_acc=0.720
+    step  800: loss=0.8097 logit(mean=-0.011 std=1.332) |grad|=1.000 running_acc=0.722
+    step  900: loss=0.5582 logit(mean=+0.176 std=1.667) |grad|=1.000 running_acc=0.722
+    step 1000: loss=0.4744 logit(mean=+0.207 std=1.613) |grad|=1.000 running_acc=0.723
+    step 1100: loss=0.5144 logit(mean=+0.156 std=1.746) |grad|=1.000 running_acc=0.721
+    step 1200: loss=0.5006 logit(mean=-0.072 std=1.336) |grad|=1.000 running_acc=0.722
+    step 1300: loss=0.6510 logit(mean=+0.053 std=1.674) |grad|=1.000 running_acc=0.724
+    step 1400: loss=0.5188 logit(mean=+0.224 std=1.613) |grad|=1.000 running_acc=0.724
+    step 1500: loss=0.4750 logit(mean=+0.431 std=1.934) |grad|=1.000 running_acc=0.724
+    step 1600: loss=0.5269 logit(mean=+0.225 std=1.572) |grad|=1.000 running_acc=0.724
+    step 1700: loss=0.5635 logit(mean=+0.332 std=1.943) |grad|=1.000 running_acc=0.725
+    step 1800: loss=0.5477 logit(mean=+0.048 std=1.835) |grad|=1.000 running_acc=0.726
+    step 1900: loss=0.4983 logit(mean=+0.139 std=1.419) |grad|=1.000 running_acc=0.726
+    step 2000: loss=0.7043 logit(mean=+0.346 std=1.885) |grad|=1.000 running_acc=0.725
+    step 2100: loss=0.3893 logit(mean=+0.155 std=1.421) |grad|=1.000 running_acc=0.725
+    step 2200: loss=0.4491 logit(mean=+0.324 std=1.799) |grad|=1.000 running_acc=0.726
+[physics-9ch-rgb+physics+frequency:compute] epoch 5: epoch=5.0000 train_loss=0.5407 train_accuracy=0.7264 train_auroc=0.8004 val_loss=0.6210 val_accuracy=0.6849 val_auroc=0.6669 epoch_seconds=222.2716
+  [profile] batch0: img(mean=0.404 std=0.334) label_mean=0.250 (=fake fraction; ~0.5 means WRS works) logits(mean=0.301 std=1.955 range=[-1.841,5.227])
+  [profile] batch0 post-backward: |grad|=18.3562 zero-grad-tensors=0/174 loss=0.7037
+    step  100: loss=0.4254 logit(mean=+0.245 std=1.671) |grad|=1.000 running_acc=0.724
+    step  200: loss=0.3481 logit(mean=+0.509 std=1.917) |grad|=1.000 running_acc=0.736
+    step  300: loss=0.3462 logit(mean=+0.265 std=2.254) |grad|=1.000 running_acc=0.740
+    step  400: loss=0.7214 logit(mean=+0.045 std=1.851) |grad|=1.000 running_acc=0.739
+    step  500: loss=0.4205 logit(mean=+0.051 std=1.657) |grad|=1.000 running_acc=0.744
+    step  600: loss=0.6506 logit(mean=+0.182 std=1.822) |grad|=1.000 running_acc=0.743
+    step  700: loss=0.3764 logit(mean=+0.405 std=1.816) |grad|=1.000 running_acc=0.747
+    step  800: loss=0.5277 logit(mean=+0.021 std=1.669) |grad|=1.000 running_acc=0.748
+    step  900: loss=0.4957 logit(mean=-0.087 std=1.247) |grad|=1.000 running_acc=0.748
+    step 1000: loss=0.3619 logit(mean=+0.349 std=1.646) |grad|=1.000 running_acc=0.747
+    step 1100: loss=0.5484 logit(mean=+0.063 std=2.211) |grad|=1.000 running_acc=0.749
+    step 1200: loss=0.7889 logit(mean=+0.215 std=1.881) |grad|=1.000 running_acc=0.749
+    step 1300: loss=0.6306 logit(mean=+0.173 std=1.836) |grad|=1.000 running_acc=0.749
+    step 1400: loss=0.6122 logit(mean=+0.296 std=2.078) |grad|=1.000 running_acc=0.749
+    step 1500: loss=0.3814 logit(mean=+0.321 std=2.094) |grad|=1.000 running_acc=0.749
+    step 1600: loss=0.6170 logit(mean=+0.253 std=2.060) |grad|=1.000 running_acc=0.750
+    step 1700: loss=0.4305 logit(mean=+0.255 std=2.248) |grad|=1.000 running_acc=0.750
+    step 1800: loss=0.2855 logit(mean=+0.336 std=2.005) |grad|=1.000 running_acc=0.750
+    step 1900: loss=0.4691 logit(mean=+0.145 std=1.613) |grad|=1.000 running_acc=0.750
+    step 2000: loss=0.4887 logit(mean=+0.277 std=2.069) |grad|=1.000 running_acc=0.750
+    step 2100: loss=0.4647 logit(mean=+0.457 std=2.162) |grad|=1.000 running_acc=0.750
+    step 2200: loss=0.7400 logit(mean=+0.235 std=2.202) |grad|=1.000 running_acc=0.752
+[physics-9ch-rgb+physics+frequency:compute] epoch 6: epoch=6.0000 train_loss=0.5113 train_accuracy=0.7520 train_auroc=0.8252 val_loss=0.6660 val_accuracy=0.6606 val_auroc=0.6620 epoch_seconds=222.9712
+  [profile] batch0: img(mean=0.404 std=0.337) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=0.334 std=1.990 range=[-2.580,3.587])
+  [profile] batch0 post-backward: |grad|=15.7492 zero-grad-tensors=0/174 loss=0.3418
+    step  100: loss=0.6225 logit(mean=+0.355 std=2.331) |grad|=1.000 running_acc=0.769
+    step  200: loss=0.4178 logit(mean=+0.322 std=1.959) |grad|=1.000 running_acc=0.762
+    step  300: loss=0.4499 logit(mean=+0.382 std=2.546) |grad|=1.000 running_acc=0.758
+    step  400: loss=0.5910 logit(mean=+0.111 std=2.266) |grad|=1.000 running_acc=0.756
+    step  500: loss=0.3630 logit(mean=+0.408 std=2.606) |grad|=1.000 running_acc=0.760
+    step  600: loss=0.6456 logit(mean=-0.184 std=1.941) |grad|=1.000 running_acc=0.763
+    step  700: loss=0.8222 logit(mean=+0.589 std=1.969) |grad|=1.000 running_acc=0.763
+    step  800: loss=0.6901 logit(mean=-0.012 std=2.042) |grad|=1.000 running_acc=0.763
+    step  900: loss=0.5011 logit(mean=+0.478 std=2.553) |grad|=1.000 running_acc=0.763
+    step 1000: loss=0.3368 logit(mean=+0.722 std=2.658) |grad|=1.000 running_acc=0.764
+    step 1100: loss=0.4556 logit(mean=+0.417 std=2.066) |grad|=1.000 running_acc=0.763
+    step 1200: loss=0.5574 logit(mean=+0.242 std=1.724) |grad|=1.000 running_acc=0.764
+    step 1300: loss=0.5119 logit(mean=+0.162 std=1.905) |grad|=1.000 running_acc=0.765
+    step 1400: loss=0.4021 logit(mean=-0.144 std=1.631) |grad|=1.000 running_acc=0.765
+    step 1500: loss=0.5760 logit(mean=+0.291 std=1.790) |grad|=1.000 running_acc=0.765
+    step 1600: loss=0.8335 logit(mean=+0.613 std=2.945) |grad|=1.000 running_acc=0.766
+    step 1700: loss=0.6036 logit(mean=+0.236 std=2.359) |grad|=1.000 running_acc=0.766
+    step 1800: loss=0.5335 logit(mean=+0.425 std=2.122) |grad|=1.000 running_acc=0.767
+    step 1900: loss=0.3191 logit(mean=+0.088 std=2.141) |grad|=1.000 running_acc=0.768
+    step 2000: loss=0.5333 logit(mean=+0.009 std=2.293) |grad|=1.000 running_acc=0.770
+    step 2100: loss=0.3989 logit(mean=+0.042 std=1.494) |grad|=1.000 running_acc=0.771
+    step 2200: loss=0.3231 logit(mean=+0.062 std=1.881) |grad|=1.000 running_acc=0.771
+[physics-9ch-rgb+physics+frequency:compute] epoch 7: epoch=7.0000 train_loss=0.4777 train_accuracy=0.7714 train_auroc=0.8494 val_loss=0.6507 val_accuracy=0.6970 val_auroc=0.6746 epoch_seconds=223.2019
+  [profile] batch0: img(mean=0.398 std=0.341) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=0.050 std=1.853 range=[-2.438,4.012])
+  [profile] batch0 post-backward: |grad|=18.0249 zero-grad-tensors=0/174 loss=0.3836
+    step  100: loss=0.3832 logit(mean=+0.826 std=3.137) |grad|=1.000 running_acc=0.798
+    step  200: loss=0.2075 logit(mean=+0.674 std=2.559) |grad|=1.000 running_acc=0.792
+    step  300: loss=0.4496 logit(mean=-0.158 std=1.597) |grad|=1.000 running_acc=0.784
+    step  400: loss=0.5933 logit(mean=+0.267 std=2.979) |grad|=1.000 running_acc=0.786
+    step  500: loss=0.2444 logit(mean=+0.412 std=2.579) |grad|=1.000 running_acc=0.788
+    step  600: loss=0.3083 logit(mean=+0.055 std=2.066) |grad|=1.000 running_acc=0.791
+    step  700: loss=0.5248 logit(mean=-0.152 std=1.659) |grad|=1.000 running_acc=0.792
+    step  800: loss=0.4470 logit(mean=+0.292 std=2.131) |grad|=1.000 running_acc=0.794
+    step  900: loss=0.5619 logit(mean=+0.517 std=2.554) |grad|=1.000 running_acc=0.793
+    step 1000: loss=0.4334 logit(mean=+0.533 std=2.581) |grad|=1.000 running_acc=0.794
+    step 1100: loss=0.4528 logit(mean=+0.113 std=2.019) |grad|=1.000 running_acc=0.795
+    step 1200: loss=0.3773 logit(mean=+0.403 std=2.798) |grad|=1.000 running_acc=0.795
+    step 1300: loss=0.3284 logit(mean=+0.053 std=2.209) |grad|=1.000 running_acc=0.796
+    step 1400: loss=0.3759 logit(mean=+0.349 std=2.473) |grad|=1.000 running_acc=0.796
+    step 1500: loss=0.4337 logit(mean=+0.006 std=1.935) |grad|=1.000 running_acc=0.795
+    step 1600: loss=0.4510 logit(mean=+0.437 std=2.499) |grad|=1.000 running_acc=0.794
+    step 1700: loss=0.2582 logit(mean=+1.040 std=3.672) |grad|=1.000 running_acc=0.795
+    step 1800: loss=0.4338 logit(mean=+1.093 std=3.389) |grad|=1.000 running_acc=0.796
+    step 1900: loss=0.2482 logit(mean=+0.713 std=3.133) |grad|=1.000 running_acc=0.797
+    step 2000: loss=0.3178 logit(mean=+0.573 std=2.661) |grad|=1.000 running_acc=0.799
+    step 2100: loss=0.2335 logit(mean=-0.044 std=1.969) |grad|=1.000 running_acc=0.799
+    step 2200: loss=0.2785 logit(mean=+0.190 std=2.823) |grad|=1.000 running_acc=0.800
+[physics-9ch-rgb+physics+frequency:compute] epoch 8: epoch=8.0000 train_loss=0.4355 train_accuracy=0.8005 train_auroc=0.8772 val_loss=0.6899 val_accuracy=0.6901 val_auroc=0.6716 epoch_seconds=222.6644
+  [profile] batch0: img(mean=0.407 std=0.338) label_mean=0.625 (=fake fraction; ~0.5 means WRS works) logits(mean=0.375 std=2.607 range=[-2.817,4.795])
+  [profile] batch0 post-backward: |grad|=17.9212 zero-grad-tensors=0/174 loss=0.3036
+    step  100: loss=0.4958 logit(mean=+0.083 std=2.510) |grad|=1.000 running_acc=0.809
+    step  200: loss=0.5550 logit(mean=+0.034 std=2.326) |grad|=1.000 running_acc=0.807
+    step  300: loss=0.5723 logit(mean=-0.010 std=2.437) |grad|=1.000 running_acc=0.808
+    step  400: loss=0.3236 logit(mean=+0.089 std=2.240) |grad|=1.000 running_acc=0.810
+    step  500: loss=0.5048 logit(mean=+0.048 std=2.148) |grad|=1.000 running_acc=0.810
+    step  600: loss=0.4574 logit(mean=-0.382 std=2.104) |grad|=1.000 running_acc=0.813
+    step  700: loss=0.3070 logit(mean=+0.030 std=2.649) |grad|=1.000 running_acc=0.816
+    step  800: loss=0.6133 logit(mean=+0.322 std=2.512) |grad|=1.000 running_acc=0.817
+    step  900: loss=0.4775 logit(mean=+0.636 std=3.694) |grad|=1.000 running_acc=0.819
+    step 1000: loss=0.1908 logit(mean=+1.196 std=3.487) |grad|=1.000 running_acc=0.821
+    step 1100: loss=0.3230 logit(mean=-0.300 std=2.121) |grad|=1.000 running_acc=0.822
+    step 1200: loss=0.1666 logit(mean=+0.562 std=2.927) |grad|=1.000 running_acc=0.821
+    step 1300: loss=0.3290 logit(mean=+1.049 std=3.279) |grad|=1.000 running_acc=0.821
+    step 1400: loss=0.4829 logit(mean=-0.360 std=1.438) |grad|=1.000 running_acc=0.820
+    step 1500: loss=0.5424 logit(mean=+0.572 std=3.315) |grad|=1.000 running_acc=0.821
+    step 1600: loss=0.8602 logit(mean=+0.674 std=3.231) |grad|=1.000 running_acc=0.823
+    step 1700: loss=0.4575 logit(mean=+0.267 std=1.965) |grad|=1.000 running_acc=0.823
+    step 1800: loss=0.4202 logit(mean=-0.505 std=1.816) |grad|=1.000 running_acc=0.823
+    step 1900: loss=0.4400 logit(mean=+0.621 std=3.124) |grad|=1.000 running_acc=0.823
+    step 2000: loss=0.6920 logit(mean=+0.172 std=3.509) |grad|=1.000 running_acc=0.823
+    step 2100: loss=0.5749 logit(mean=+0.682 std=3.409) |grad|=1.000 running_acc=0.824
+    step 2200: loss=0.2196 logit(mean=+1.319 std=3.546) |grad|=1.000 running_acc=0.825
+[physics-9ch-rgb+physics+frequency:compute] epoch 9: epoch=9.0000 train_loss=0.3920 train_accuracy=0.8259 train_auroc=0.9017 val_loss=0.8883 val_accuracy=0.6311 val_auroc=0.6662 epoch_seconds=218.2906
+  [profile] batch0: img(mean=0.395 std=0.333) label_mean=0.438 (=fake fraction; ~0.5 means WRS works) logits(mean=0.813 std=3.843 range=[-3.293,7.265])
+  [profile] batch0 post-backward: |grad|=20.4350 zero-grad-tensors=0/174 loss=0.2602
+    step  100: loss=0.2339 logit(mean=+0.693 std=2.551) |grad|=1.000 running_acc=0.827
+    step  200: loss=0.3673 logit(mean=+0.450 std=3.107) |grad|=1.000 running_acc=0.829
+    step  300: loss=0.2495 logit(mean=+0.590 std=2.922) |grad|=1.000 running_acc=0.825
+    step  400: loss=0.1764 logit(mean=+0.286 std=3.322) |grad|=1.000 running_acc=0.829
+    step  500: loss=0.4477 logit(mean=+0.364 std=2.442) |grad|=1.000 running_acc=0.832
+    step  600: loss=0.3756 logit(mean=+0.077 std=2.345) |grad|=1.000 running_acc=0.834
+    step  700: loss=0.3155 logit(mean=+0.420 std=2.843) |grad|=1.000 running_acc=0.834
+    step  800: loss=0.3683 logit(mean=+0.784 std=2.975) |grad|=1.000 running_acc=0.837
+    step  900: loss=0.2441 logit(mean=+0.858 std=3.129) |grad|=1.000 running_acc=0.837
+    step 1000: loss=0.4079 logit(mean=+0.451 std=2.617) |grad|=1.000 running_acc=0.837
+    step 1100: loss=0.2575 logit(mean=+0.119 std=3.072) |grad|=1.000 running_acc=0.838
+    step 1200: loss=0.1375 logit(mean=+0.247 std=2.888) |grad|=1.000 running_acc=0.839
+    step 1300: loss=0.3276 logit(mean=+0.796 std=4.129) |grad|=1.000 running_acc=0.840
+    step 1400: loss=0.2272 logit(mean=+0.743 std=3.167) |grad|=1.000 running_acc=0.841
+    step 1500: loss=0.1707 logit(mean=+1.262 std=3.493) |grad|=1.000 running_acc=0.843
+    step 1600: loss=0.2633 logit(mean=+1.222 std=3.939) |grad|=1.000 running_acc=0.843
+    step 1700: loss=0.2209 logit(mean=+0.464 std=3.031) |grad|=1.000 running_acc=0.844
+    step 1800: loss=0.6874 logit(mean=+0.012 std=2.373) |grad|=1.000 running_acc=0.844
+    step 1900: loss=0.4237 logit(mean=-0.029 std=2.088) |grad|=1.000 running_acc=0.844
+    step 2000: loss=0.2441 logit(mean=+2.183 std=5.029) |grad|=1.000 running_acc=0.845
+    step 2100: loss=0.3479 logit(mean=+0.229 std=3.450) |grad|=1.000 running_acc=0.845
+    step 2200: loss=0.3829 logit(mean=+0.160 std=3.324) |grad|=1.000 running_acc=0.846
+[physics-9ch-rgb+physics+frequency:compute] epoch 10: epoch=10.0000 train_loss=0.3584 train_accuracy=0.8466 train_auroc=0.9178 val_loss=0.7655 val_accuracy=0.7260 val_auroc=0.6643 epoch_seconds=224.1941
+  [profile] batch0: img(mean=0.403 std=0.335) label_mean=0.688 (=fake fraction; ~0.5 means WRS works) logits(mean=1.752 std=4.456 range=[-4.718,8.856])
+  [profile] batch0 post-backward: |grad|=16.4724 zero-grad-tensors=0/174 loss=0.3196
+    step  100: loss=0.3697 logit(mean=-0.512 std=2.200) |grad|=1.000 running_acc=0.856
+    step  200: loss=0.3098 logit(mean=-0.057 std=3.236) |grad|=1.000 running_acc=0.863
+    step  300: loss=0.3078 logit(mean=+0.378 std=3.222) |grad|=1.000 running_acc=0.866
+    step  400: loss=0.0641 logit(mean=+0.730 std=3.138) |grad|=1.000 running_acc=0.865
+    step  500: loss=0.4530 logit(mean=+1.283 std=4.314) |grad|=1.000 running_acc=0.865
+    step  600: loss=0.6375 logit(mean=+1.618 std=4.447) |grad|=1.000 running_acc=0.863
+    step  700: loss=0.1721 logit(mean=+0.803 std=3.892) |grad|=1.000 running_acc=0.860
+    step  800: loss=0.3019 logit(mean=-0.114 std=2.928) |grad|=1.000 running_acc=0.860
+    step  900: loss=0.1371 logit(mean=+0.399 std=3.377) |grad|=1.000 running_acc=0.863
+    step 1000: loss=0.3260 logit(mean=-0.418 std=3.000) |grad|=1.000 running_acc=0.864
+    step 1100: loss=0.4734 logit(mean=+0.347 std=3.188) |grad|=1.000 running_acc=0.864
+    step 1200: loss=0.1479 logit(mean=+0.562 std=3.574) |grad|=1.000 running_acc=0.865
+    step 1300: loss=0.2839 logit(mean=+0.724 std=3.351) |grad|=1.000 running_acc=0.865
+    step 1400: loss=0.3408 logit(mean=+1.461 std=4.009) |grad|=1.000 running_acc=0.867
+    step 1500: loss=0.1757 logit(mean=+1.342 std=3.905) |grad|=1.000 running_acc=0.868
+    step 1600: loss=0.3163 logit(mean=+0.461 std=4.347) |grad|=1.000 running_acc=0.868
+    step 1700: loss=0.2409 logit(mean=+0.646 std=3.697) |grad|=1.000 running_acc=0.868
+    step 1800: loss=0.2290 logit(mean=+1.367 std=4.981) |grad|=1.000 running_acc=0.868
+    step 1900: loss=0.5674 logit(mean=+0.520 std=3.453) |grad|=1.000 running_acc=0.868
+    step 2000: loss=0.1154 logit(mean=+1.919 std=5.626) |grad|=1.000 running_acc=0.869
+    step 2100: loss=0.1731 logit(mean=+1.305 std=4.155) |grad|=1.000 running_acc=0.869
+    step 2200: loss=0.5116 logit(mean=-0.098 std=3.454) |grad|=1.000 running_acc=0.869
+[physics-9ch-rgb+physics+frequency:compute] epoch 11: epoch=11.0000 train_loss=0.3204 train_accuracy=0.8691 train_auroc=0.9346 val_loss=0.8529 val_accuracy=0.7134 val_auroc=0.6582 epoch_seconds=225.3052
+  [profile] batch0: img(mean=0.399 std=0.341) label_mean=0.375 (=fake fraction; ~0.5 means WRS works) logits(mean=0.914 std=4.621 range=[-3.902,9.040])
+  [profile] batch0 post-backward: |grad|=32.1268 zero-grad-tensors=0/174 loss=0.3065
+    step  100: loss=0.3235 logit(mean=+1.094 std=5.317) |grad|=1.000 running_acc=0.884
+    step  200: loss=0.3573 logit(mean=+0.559 std=5.123) |grad|=1.000 running_acc=0.879
+    step  300: loss=0.5308 logit(mean=+1.346 std=4.782) |grad|=1.000 running_acc=0.881
+    step  400: loss=0.1321 logit(mean=+0.603 std=5.289) |grad|=1.000 running_acc=0.883
+    step  500: loss=0.1464 logit(mean=+0.291 std=4.478) |grad|=1.000 running_acc=0.883
+    step  600: loss=0.2301 logit(mean=+0.371 std=4.187) |grad|=1.000 running_acc=0.886
+    step  700: loss=0.1933 logit(mean=-0.426 std=3.009) |grad|=1.000 running_acc=0.885
+    step  800: loss=0.3118 logit(mean=+0.890 std=4.097) |grad|=1.000 running_acc=0.884
+    step  900: loss=0.1868 logit(mean=+0.762 std=4.371) |grad|=1.000 running_acc=0.883
+    step 1000: loss=0.0954 logit(mean=+1.100 std=5.249) |grad|=1.000 running_acc=0.883
+    step 1100: loss=0.2461 logit(mean=+1.072 std=5.261) |grad|=1.000 running_acc=0.883
+    step 1200: loss=0.1661 logit(mean=+2.439 std=5.454) |grad|=1.000 running_acc=0.884
+    step 1300: loss=0.1077 logit(mean=+1.724 std=5.601) |grad|=1.000 running_acc=0.885
+    step 1400: loss=0.0787 logit(mean=+2.005 std=5.547) |grad|=1.000 running_acc=0.886
+    step 1500: loss=0.0926 logit(mean=+1.783 std=5.435) |grad|=1.000 running_acc=0.887
+    step 1600: loss=0.1478 logit(mean=+0.780 std=5.466) |grad|=1.000 running_acc=0.887
+    step 1700: loss=0.2242 logit(mean=+3.169 std=6.563) |grad|=1.000 running_acc=0.887
+    step 1800: loss=0.1946 logit(mean=+1.617 std=4.389) |grad|=1.000 running_acc=0.888
+    step 1900: loss=0.1518 logit(mean=+2.835 std=5.910) |grad|=1.000 running_acc=0.888
+    step 2000: loss=0.0775 logit(mean=+2.102 std=5.247) |grad|=1.000 running_acc=0.888
+    step 2100: loss=0.4174 logit(mean=+1.165 std=4.262) |grad|=1.000 running_acc=0.887
+    step 2200: loss=0.3734 logit(mean=+1.041 std=5.226) |grad|=1.000 running_acc=0.887
+[physics-9ch-rgb+physics+frequency:compute] epoch 12: epoch=12.0000 train_loss=0.2825 train_accuracy=0.8875 train_auroc=0.9494 val_loss=0.9304 val_accuracy=0.7234 val_auroc=0.6535 epoch_seconds=220.6120
+  [profile] batch0: img(mean=0.384 std=0.326) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=1.637 std=4.561 range=[-3.940,10.826])
+  [profile] batch0 post-backward: |grad|=17.6940 zero-grad-tensors=0/174 loss=0.1321
+    step  100: loss=0.2566 logit(mean=+1.211 std=4.761) |grad|=1.000 running_acc=0.902
+    step  200: loss=0.3628 logit(mean=+1.778 std=5.211) |grad|=1.000 running_acc=0.901
+    step  300: loss=0.0453 logit(mean=+2.919 std=5.776) |grad|=1.000 running_acc=0.901
+    step  400: loss=0.1131 logit(mean=+0.601 std=4.158) |grad|=1.000 running_acc=0.900
+    step  500: loss=0.3552 logit(mean=+1.146 std=5.015) |grad|=1.000 running_acc=0.899
+    step  600: loss=0.3265 logit(mean=+0.754 std=4.622) |grad|=1.000 running_acc=0.901
+    step  700: loss=0.3066 logit(mean=+0.642 std=4.539) |grad|=1.000 running_acc=0.899
+    step  800: loss=0.0999 logit(mean=+2.018 std=5.443) |grad|=1.000 running_acc=0.898
+    step  900: loss=0.0733 logit(mean=+2.195 std=5.892) |grad|=1.000 running_acc=0.898
+    step 1000: loss=0.3522 logit(mean=+0.334 std=3.935) |grad|=1.000 running_acc=0.899
+    step 1100: loss=0.2586 logit(mean=+1.055 std=4.474) |grad|=1.000 running_acc=0.899
+    step 1200: loss=0.0372 logit(mean=+1.480 std=5.944) |grad|=1.000 running_acc=0.900
+    step 1300: loss=0.5794 logit(mean=+1.408 std=5.252) |grad|=1.000 running_acc=0.900
+    step 1400: loss=0.3606 logit(mean=+1.697 std=5.556) |grad|=1.000 running_acc=0.901
+    step 1500: loss=0.2318 logit(mean=+1.602 std=5.848) |grad|=1.000 running_acc=0.901
+    step 1600: loss=0.3841 logit(mean=+2.237 std=7.036) |grad|=1.000 running_acc=0.901
+    step 1700: loss=0.5640 logit(mean=+1.058 std=6.463) |grad|=1.000 running_acc=0.902
+    step 1800: loss=0.3797 logit(mean=+1.695 std=6.006) |grad|=1.000 running_acc=0.902
+    step 1900: loss=0.3852 logit(mean=+2.904 std=5.973) |grad|=1.000 running_acc=0.903
+    step 2000: loss=0.0569 logit(mean=+1.083 std=5.557) |grad|=1.000 running_acc=0.903
+    step 2100: loss=0.0476 logit(mean=+0.730 std=6.357) |grad|=1.000 running_acc=0.903
+    step 2200: loss=0.6229 logit(mean=+0.821 std=4.784) |grad|=1.000 running_acc=0.904
+[physics-9ch-rgb+physics+frequency:compute] epoch 13: epoch=13.0000 train_loss=0.2479 train_accuracy=0.9038 train_auroc=0.9608 val_loss=1.1733 val_accuracy=0.7527 val_auroc=0.6581 epoch_seconds=222.6705
+  [profile] batch0: img(mean=0.385 std=0.330) label_mean=0.312 (=fake fraction; ~0.5 means WRS works) logits(mean=-0.102 std=4.479 range=[-3.525,11.175])
+  [profile] batch0 post-backward: |grad|=40.3392 zero-grad-tensors=0/174 loss=0.1616
+    step  100: loss=0.0575 logit(mean=+3.020 std=5.979) |grad|=1.000 running_acc=0.913
+    step  200: loss=0.1448 logit(mean=+2.155 std=6.587) |grad|=1.000 running_acc=0.922
+    step  300: loss=0.2029 logit(mean=+2.192 std=5.553) |grad|=1.000 running_acc=0.920
+    step  400: loss=0.1741 logit(mean=+1.362 std=5.870) |grad|=1.000 running_acc=0.918
+    step  500: loss=0.5236 logit(mean=+1.404 std=4.650) |grad|=1.000 running_acc=0.917
+    step  600: loss=0.1985 logit(mean=+1.153 std=5.237) |grad|=1.000 running_acc=0.918
+    step  700: loss=0.0824 logit(mean=+1.313 std=5.676) |grad|=1.000 running_acc=0.918
+    step  800: loss=0.1730 logit(mean=+2.993 std=6.564) |grad|=1.000 running_acc=0.917
+    step  900: loss=0.0302 logit(mean=+1.226 std=6.834) |grad|=1.000 running_acc=0.917
+    step 1000: loss=0.0377 logit(mean=+4.901 std=8.804) |grad|=1.000 running_acc=0.918
+    step 1100: loss=0.1349 logit(mean=+1.648 std=6.660) |grad|=1.000 running_acc=0.919
+    step 1200: loss=0.1259 logit(mean=+4.220 std=7.876) |grad|=1.000 running_acc=0.920
+    step 1300: loss=0.0694 logit(mean=+1.992 std=7.534) |grad|=1.000 running_acc=0.920
+    step 1400: loss=0.0581 logit(mean=+1.025 std=5.769) |grad|=1.000 running_acc=0.920
+    step 1500: loss=0.1866 logit(mean=+0.447 std=5.438) |grad|=1.000 running_acc=0.920
+    step 1600: loss=0.3160 logit(mean=+0.886 std=5.294) |grad|=1.000 running_acc=0.920
+    step 1700: loss=0.0599 logit(mean=+1.466 std=5.766) |grad|=1.000 running_acc=0.920
+    step 1800: loss=0.1034 logit(mean=+3.231 std=7.993) |grad|=1.000 running_acc=0.920
+    step 1900: loss=0.2084 logit(mean=+1.647 std=5.854) |grad|=1.000 running_acc=0.921
+    step 2000: loss=0.5762 logit(mean=+4.362 std=7.599) |grad|=1.000 running_acc=0.921
+    step 2100: loss=0.7637 logit(mean=+2.089 std=7.221) |grad|=1.000 running_acc=0.921
+    step 2200: loss=0.2012 logit(mean=+1.610 std=6.500) |grad|=1.000 running_acc=0.921
+[physics-9ch-rgb+physics+frequency:compute] epoch 14: epoch=14.0000 train_loss=0.2182 train_accuracy=0.9205 train_auroc=0.9702 val_loss=1.2230 val_accuracy=0.7374 val_auroc=0.6532 epoch_seconds=223.6435
+  [profile] batch0: img(mean=0.387 std=0.330) label_mean=0.625 (=fake fraction; ~0.5 means WRS works) logits(mean=3.676 std=7.843 range=[-5.863,19.469])
+  [profile] batch0 post-backward: |grad|=30.0219 zero-grad-tensors=0/174 loss=0.3652
+    step  100: loss=0.2435 logit(mean=+0.746 std=6.053) |grad|=1.000 running_acc=0.932
+    step  200: loss=0.2450 logit(mean=+4.809 std=7.286) |grad|=1.000 running_acc=0.929
+    step  300: loss=0.0351 logit(mean=+2.034 std=7.050) |grad|=1.000 running_acc=0.929
+    step  400: loss=0.6261 logit(mean=+0.032 std=4.903) |grad|=1.000 running_acc=0.927
+    step  500: loss=0.1634 logit(mean=+3.046 std=8.980) |grad|=1.000 running_acc=0.925
+    step  600: loss=0.0939 logit(mean=+2.068 std=7.443) |grad|=1.000 running_acc=0.926
+    step  700: loss=0.4536 logit(mean=+0.817 std=6.998) |grad|=1.000 running_acc=0.927
+    step  800: loss=0.0238 logit(mean=+2.995 std=8.573) |grad|=1.000 running_acc=0.927
+    step  900: loss=0.2003 logit(mean=+1.978 std=6.694) |grad|=1.000 running_acc=0.926
+    step 1000: loss=0.0211 logit(mean=-0.469 std=5.617) |grad|=1.000 running_acc=0.927
+    step 1100: loss=0.3665 logit(mean=+2.386 std=7.934) |grad|=1.000 running_acc=0.929
+    step 1200: loss=0.1244 logit(mean=+3.777 std=7.151) |grad|=1.000 running_acc=0.928
+    step 1300: loss=0.0160 logit(mean=+4.509 std=8.988) |grad|=1.000 running_acc=0.929
+    step 1400: loss=0.1435 logit(mean=+0.614 std=7.198) |grad|=1.000 running_acc=0.929
+    step 1500: loss=0.0156 logit(mean=+5.377 std=8.263) |grad|=1.000 running_acc=0.929
+    step 1600: loss=0.3899 logit(mean=+2.621 std=7.361) |grad|=1.000 running_acc=0.929
+    step 1700: loss=0.1035 logit(mean=+3.849 std=8.533) |grad|=1.000 running_acc=0.929
+    step 1800: loss=0.2652 logit(mean=+3.088 std=7.643) |grad|=1.000 running_acc=0.929
+    step 1900: loss=0.4798 logit(mean=+0.972 std=7.779) |grad|=1.000 running_acc=0.929
+    step 2000: loss=0.0624 logit(mean=+2.173 std=7.974) |grad|=1.000 running_acc=0.930
+    step 2100: loss=0.2992 logit(mean=+3.494 std=8.912) |grad|=1.000 running_acc=0.930
+    step 2200: loss=0.0587 logit(mean=+0.024 std=6.236) |grad|=1.000 running_acc=0.930
+[physics-9ch-rgb+physics+frequency:compute] epoch 15: epoch=15.0000 train_loss=0.1986 train_accuracy=0.9306 train_auroc=0.9759 val_loss=1.3445 val_accuracy=0.7303 val_auroc=0.6526 epoch_seconds=221.7691
+  [profile] batch0: img(mean=0.398 std=0.338) label_mean=0.688 (=fake fraction; ~0.5 means WRS works) logits(mean=2.811 std=6.219 range=[-5.975,11.168])
+  [profile] batch0 post-backward: |grad|=54.6539 zero-grad-tensors=0/174 loss=0.0712
+    step  100: loss=0.0407 logit(mean=-0.584 std=6.244) |grad|=1.000 running_acc=0.938
+    step  200: loss=0.4546 logit(mean=+0.355 std=7.079) |grad|=1.000 running_acc=0.935
+    step  300: loss=0.1049 logit(mean=+4.353 std=7.963) |grad|=1.000 running_acc=0.939
+    step  400: loss=0.4196 logit(mean=+3.789 std=8.816) |grad|=1.000 running_acc=0.940
+    step  500: loss=0.0078 logit(mean=+3.989 std=10.435) |grad|=1.000 running_acc=0.938
+    step  600: loss=0.0517 logit(mean=+1.878 std=7.327) |grad|=1.000 running_acc=0.940
+    step  700: loss=0.0267 logit(mean=+2.633 std=7.718) |grad|=1.000 running_acc=0.939
+    step  800: loss=0.0387 logit(mean=+5.194 std=9.699) |grad|=1.000 running_acc=0.939
+    step  900: loss=0.1564 logit(mean=+3.975 std=10.250) |grad|=1.000 running_acc=0.939
+    step 1000: loss=0.0307 logit(mean=+3.867 std=7.413) |grad|=1.000 running_acc=0.938
+    step 1100: loss=0.2897 logit(mean=+1.028 std=7.765) |grad|=1.000 running_acc=0.939
+    step 1200: loss=0.1287 logit(mean=+4.801 std=9.453) |grad|=1.000 running_acc=0.939
+    step 1300: loss=0.0094 logit(mean=+3.636 std=8.709) |grad|=1.000 running_acc=0.939
+    step 1400: loss=0.3812 logit(mean=+3.558 std=8.775) |grad|=1.000 running_acc=0.939
+    step 1500: loss=0.1692 logit(mean=+0.937 std=8.009) |grad|=1.000 running_acc=0.939
+    step 1600: loss=0.1881 logit(mean=+1.749 std=9.290) |grad|=1.000 running_acc=0.939
+    step 1700: loss=0.0721 logit(mean=+4.349 std=9.293) |grad|=1.000 running_acc=0.939
+    step 1800: loss=0.1935 logit(mean=+1.922 std=9.302) |grad|=1.000 running_acc=0.939
+    step 1900: loss=0.5467 logit(mean=+1.516 std=8.068) |grad|=1.000 running_acc=0.939
+    step 2000: loss=0.0066 logit(mean=+1.137 std=7.571) |grad|=1.000 running_acc=0.940
+    step 2100: loss=0.0084 logit(mean=+1.591 std=9.787) |grad|=1.000 running_acc=0.940
+    step 2200: loss=0.0056 logit(mean=+5.350 std=9.916) |grad|=1.000 running_acc=0.940
+[physics-9ch-rgb+physics+frequency:compute] epoch 16: epoch=16.0000 train_loss=0.1831 train_accuracy=0.9402 train_auroc=0.9807 val_loss=1.5820 val_accuracy=0.7331 val_auroc=0.6526 epoch_seconds=222.8223
+  [profile] batch0: img(mean=0.400 std=0.330) label_mean=0.625 (=fake fraction; ~0.5 means WRS works) logits(mean=4.755 std=9.386 range=[-10.206,20.401])
+  [profile] batch0 post-backward: |grad|=1.8013 zero-grad-tensors=0/174 loss=0.0057
+    step  100: loss=0.0130 logit(mean=+4.820 std=9.438) |grad|=1.000 running_acc=0.952
+    step  200: loss=0.0365 logit(mean=+3.838 std=7.605) |grad|=1.000 running_acc=0.951
+    step  300: loss=0.0753 logit(mean=+4.783 std=10.313) |grad|=1.000 running_acc=0.950
+    step  400: loss=0.0094 logit(mean=+2.105 std=8.929) |grad|=1.000 running_acc=0.947
+    step  500: loss=0.1106 logit(mean=+0.394 std=7.432) |grad|=1.000 running_acc=0.945
+    step  600: loss=0.0102 logit(mean=+4.347 std=9.402) |grad|=1.000 running_acc=0.944
+    step  700: loss=0.2258 logit(mean=+3.309 std=9.199) |grad|=1.000 running_acc=0.945
+    step  800: loss=0.1002 logit(mean=+3.909 std=9.799) |grad|=1.000 running_acc=0.946
+    step  900: loss=0.9443 logit(mean=+1.431 std=9.642) |grad|=1.000 running_acc=0.945
+    step 1000: loss=0.4223 logit(mean=-0.052 std=5.764) |grad|=1.000 running_acc=0.946
+    step 1100: loss=0.1779 logit(mean=+1.618 std=8.931) |grad|=1.000 running_acc=0.946
+    step 1200: loss=0.0020 logit(mean=+5.308 std=8.978) |grad|=0.301 running_acc=0.947
+    step 1300: loss=0.0792 logit(mean=+5.204 std=9.423) |grad|=1.000 running_acc=0.948
+    step 1400: loss=0.0553 logit(mean=+4.139 std=8.367) |grad|=1.000 running_acc=0.947
+    step 1500: loss=0.0041 logit(mean=+6.184 std=9.645) |grad|=1.000 running_acc=0.947
+    step 1600: loss=0.0557 logit(mean=+6.905 std=10.230) |grad|=1.000 running_acc=0.947
+    step 1700: loss=0.0037 logit(mean=+6.864 std=10.794) |grad|=1.000 running_acc=0.947
+    step 1800: loss=0.0018 logit(mean=+7.312 std=12.424) |grad|=0.215 running_acc=0.948
+    step 1900: loss=0.4726 logit(mean=+3.742 std=9.947) |grad|=1.000 running_acc=0.947
+    step 2000: loss=0.0159 logit(mean=+7.575 std=11.686) |grad|=1.000 running_acc=0.948
+    step 2100: loss=0.3970 logit(mean=+1.259 std=9.328) |grad|=1.000 running_acc=0.947
+    step 2200: loss=0.2548 logit(mean=+0.794 std=8.902) |grad|=1.000 running_acc=0.947
+[physics-9ch-rgb+physics+frequency:compute] epoch 17: epoch=17.0000 train_loss=0.1705 train_accuracy=0.9472 train_auroc=0.9834 val_loss=1.7589 val_accuracy=0.7301 val_auroc=0.6513 epoch_seconds=225.9654
+  [profile] batch0: img(mean=0.404 std=0.333) label_mean=0.562 (=fake fraction; ~0.5 means WRS works) logits(mean=5.835 std=11.625 range=[-7.176,26.486])
+  [profile] batch0 post-backward: |grad|=5.3932 zero-grad-tensors=0/174 loss=0.0083
+    step  100: loss=0.0034 logit(mean=+5.582 std=11.774) |grad|=1.000 running_acc=0.956
+    step  200: loss=0.1958 logit(mean=+4.966 std=10.598) |grad|=1.000 running_acc=0.954
+    step  300: loss=0.3809 logit(mean=+2.592 std=9.420) |grad|=1.000 running_acc=0.950
+    step  400: loss=0.2044 logit(mean=+7.394 std=12.816) |grad|=1.000 running_acc=0.948
+    step  500: loss=0.2795 logit(mean=+5.520 std=11.619) |grad|=1.000 running_acc=0.946
+    step  600: loss=0.0170 logit(mean=+2.984 std=8.981) |grad|=1.000 running_acc=0.947
+    step  700: loss=0.4730 logit(mean=+4.762 std=11.973) |grad|=1.000 running_acc=0.947
+    step  800: loss=0.2732 logit(mean=+2.335 std=9.081) |grad|=1.000 running_acc=0.948
+    step  900: loss=0.0015 logit(mean=+9.235 std=13.108) |grad|=0.188 running_acc=0.948
+    step 1000: loss=0.0018 logit(mean=+6.548 std=10.734) |grad|=0.362 running_acc=0.949
+    step 1100: loss=0.2748 logit(mean=+3.513 std=9.606) |grad|=1.000 running_acc=0.948
+    step 1200: loss=0.2300 logit(mean=+2.733 std=10.937) |grad|=1.000 running_acc=0.948
+    step 1300: loss=0.3699 logit(mean=+2.756 std=10.017) |grad|=1.000 running_acc=0.949
+    step 1400: loss=0.1736 logit(mean=+6.293 std=11.133) |grad|=1.000 running_acc=0.949
+    step 1500: loss=0.6629 logit(mean=+2.317 std=9.446) |grad|=1.000 running_acc=0.949
+    step 1600: loss=0.1153 logit(mean=+4.970 std=10.904) |grad|=1.000 running_acc=0.949
+    step 1700: loss=0.2106 logit(mean=-0.042 std=7.888) |grad|=1.000 running_acc=0.950
+    step 1800: loss=0.0137 logit(mean=+0.248 std=8.143) |grad|=1.000 running_acc=0.950
+    step 1900: loss=0.0033 logit(mean=+5.222 std=10.435) |grad|=1.000 running_acc=0.951
+    step 2000: loss=0.0145 logit(mean=+2.180 std=8.655) |grad|=1.000 running_acc=0.951
+    step 2100: loss=0.0049 logit(mean=+6.357 std=11.911) |grad|=1.000 running_acc=0.951
+    step 2200: loss=0.0590 logit(mean=+4.239 std=10.398) |grad|=1.000 running_acc=0.951
+[physics-9ch-rgb+physics+frequency:compute] epoch 18: epoch=18.0000 train_loss=0.1671 train_accuracy=0.9506 train_auroc=0.9845 val_loss=1.8235 val_accuracy=0.7374 val_auroc=0.6519 epoch_seconds=227.6663
+  [profile] batch0: img(mean=0.417 std=0.346) label_mean=0.438 (=fake fraction; ~0.5 means WRS works) logits(mean=2.146 std=8.897 range=[-7.085,17.436])
+  [profile] batch0 post-backward: |grad|=1.5434 zero-grad-tensors=0/174 loss=0.0064
+    step  100: loss=0.3904 logit(mean=+5.660 std=10.384) |grad|=1.000 running_acc=0.946
+    step  200: loss=0.0044 logit(mean=+7.262 std=10.746) |grad|=1.000 running_acc=0.951
+    step  300: loss=0.3041 logit(mean=+1.287 std=10.027) |grad|=1.000 running_acc=0.951
+    step  400: loss=0.0062 logit(mean=+5.844 std=8.949) |grad|=1.000 running_acc=0.951
+    step  500: loss=1.3714 logit(mean=+2.511 std=8.378) |grad|=1.000 running_acc=0.951
+    step  600: loss=0.0043 logit(mean=+4.008 std=11.838) |grad|=0.871 running_acc=0.951
+    step  700: loss=0.0434 logit(mean=+0.117 std=8.065) |grad|=1.000 running_acc=0.953
+    step  800: loss=0.4183 logit(mean=+3.873 std=12.988) |grad|=1.000 running_acc=0.953
+    step  900: loss=0.0048 logit(mean=+6.946 std=12.651) |grad|=1.000 running_acc=0.954
+    step 1000: loss=0.0862 logit(mean=+5.962 std=8.967) |grad|=1.000 running_acc=0.954
+    step 1100: loss=0.1386 logit(mean=+2.417 std=10.272) |grad|=1.000 running_acc=0.954
+    step 1200: loss=0.0892 logit(mean=+4.448 std=10.214) |grad|=1.000 running_acc=0.954
+    step 1300: loss=0.0043 logit(mean=+4.431 std=13.150) |grad|=0.400 running_acc=0.954
+    step 1400: loss=0.1700 logit(mean=+1.730 std=11.035) |grad|=1.000 running_acc=0.953
+    step 1500: loss=0.3285 logit(mean=+0.076 std=7.860) |grad|=1.000 running_acc=0.953
+    step 1600: loss=0.0222 logit(mean=+4.065 std=10.287) |grad|=1.000 running_acc=0.954
+    step 1700: loss=0.0025 logit(mean=+6.050 std=12.338) |grad|=0.147 running_acc=0.953
+    step 1800: loss=0.1732 logit(mean=+6.968 std=11.687) |grad|=1.000 running_acc=0.953
+    step 1900: loss=0.0468 logit(mean=+1.112 std=9.538) |grad|=1.000 running_acc=0.953
+    step 2000: loss=0.1990 logit(mean=+2.568 std=11.361) |grad|=1.000 running_acc=0.953
+    step 2100: loss=0.0187 logit(mean=-0.194 std=6.780) |grad|=1.000 running_acc=0.953
+    step 2200: loss=0.0060 logit(mean=+4.745 std=11.613) |grad|=1.000 running_acc=0.953
+[physics-9ch-rgb+physics+frequency:compute] epoch 19: epoch=19.0000 train_loss=0.1590 train_accuracy=0.9531 train_auroc=0.9852 val_loss=1.8578 val_accuracy=0.7339 val_auroc=0.6515 epoch_seconds=224.5831
+[eval] FF++ test: 7000 frames
+[eval] CelebDF testing list: 5180 frames
+
+[physics-6ch] wrote runs_mac/physics_9ch_mnv3l_fixedsolver/report.json
+
+=== summary ===
+  ff_test: frame_auroc=0.6469 video_auroc_mean=0.7106 video_auroc_max=0.8451
+  celeb_test: frame_auroc=0.4747 video_auroc_mean=0.4727 video_auroc_max=0.4366
+exit 143
