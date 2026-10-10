@@ -55,6 +55,9 @@ runs_cluster/**/*.csv
 runs_mac/**/*.pkl
 runs_mac/**/*.csv
 
+# Saved web demo runs contain uploaded face photos — local only
+demo-artifacts/
+
 # Typst build artifacts
 paper/*.pdf
 
