@@ -1,0 +1,52 @@
+{
+  "phase": "phase-1 heuristic + classifier",
+  "args": {
+    "data_root": "/Users/mykytasiryk/Development/personal-projects/datasets/Celeb-DF-v2",
+    "dataset": "celeb-df",
+    "fake_dir": null,
+    "compression": "c23",
+    "celeb_testing_list": true,
+    "frames_per_video_train": 30,
+    "frames_per_video_eval": 10,
+    "image_size": 256,
+    "device": "cuda",
+    "n_scales": 3,
+    "max_iter": 200,
+    "runs_dir": "/Users/mykytasiryk/runs/celebdf_eval_full",
+    "val_fraction": 0.0,
+    "test_fraction": 1.0,
+    "seed": 0,
+    "classifier_checkpoint": "/Users/mykytasiryk/Downloads/classifier.pkl"
+  },
+  "elapsed_seconds": 1832.6094448566437,
+  "n_videos": {
+    "train": 0,
+    "val": 0,
+    "test": 518
+  },
+  "n_frames": {
+    "train": 0,
+    "val": 0,
+    "test": 5180
+  },
+  "val": null,
+  "test": {
+    "frame_auroc": 0.510402181097158,
+    "frame_accuracy": 0.6552123552123552,
+    "video_auroc_mean": 0.5003965631196299,
+    "video_auroc_max": 0.5012309980171844,
+    "n_videos": 518,
+    "top_features": {
+      "R_mean": 0.12093144399019741,
+      "E_decrease_first_decile": 0.08233478426598807,
+      "E_smoothness_ratio": 0.08081255684869271,
+      "L_spectral_entropy": 0.07086830347367107,
+      "absL_p99": 0.07056004954052186,
+      "R_p99": 0.0704789639980448,
+      "R_std": 0.06681583285417705,
+      "E_data": 0.06227336130982019,
+      "E_consistency": 0.0567057367617147,
+      "E_consistency_ratio": 0.05647538799641706
+    }
+  }
+}

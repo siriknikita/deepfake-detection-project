@@ -1,0 +1,45 @@
+[refit] runs-dir   = /Users/mykytasiryk/Downloads/diploma/quick_phase1
+[refit] output-dir = /Users/mykytasiryk/runs/quick_phase1_per_method
+[refit] loading features-{train,val,test}.csv ...
+[refit] loaded: train=124227 val=8160 test=8540 rows
+
+=== Deepfakes ===
+  train: 46672 rows (20815 real, 25857 fake)
+  val:   3240 rows
+  test:  3230 rows
+  test frame AUROC:        0.3678
+  test video AUROC (mean): 0.3480
+  test video AUROC (max):  0.3811
+
+=== Face2Face ===
+  train: 46668 rows (20815 real, 25853 fake)
+  val:   3240 rows
+  test:  3230 rows
+  test frame AUROC:        0.4211
+  test video AUROC (mean): 0.4125
+  test video AUROC (max):  0.4105
+
+=== FaceSwap ===
+  train: 46666 rows (20815 real, 25851 fake)
+  val:   3240 rows
+  test:  3230 rows
+  test frame AUROC:        0.3510
+  test video AUROC (mean): 0.3245
+  test video AUROC (max):  0.3866
+
+=== NeuralTextures ===
+  train: 46666 rows (20815 real, 25851 fake)
+  val:   3240 rows
+  test:  3230 rows
+  test frame AUROC:        0.4359
+  test video AUROC (mean): 0.4243
+  test video AUROC (max):  0.4268
+
+=== Per-method leaderboard ===
+Method              Frame AUROC     Video AUROC (mean)      Video AUROC (max)
+Deepfakes                0.3678                 0.3480                 0.3811
+Face2Face                0.4211                 0.4125                 0.4105
+FaceSwap                 0.3510                 0.3245                 0.3866
+NeuralTextures           0.4359                 0.4243                 0.4268
+
+Summary written to /Users/mykytasiryk/runs/quick_phase1_per_method/summary.json

@@ -1,0 +1,242 @@
+[quick] runs_dir = /Users/mykytasiryk/runs/celebdf_eval_full
+[quick] image-size = 256
+[quick] frames-per-video train/eval = 30/10
+[quick] enumerating videos for the disjoint split ...
+[quick] split: train=0 val=0 test=518 (of 518 total videos)
+[quick] dataset sizes: train=0 val=0 test=5180
+[quick] extracting features (test) ...
+  [25/5180] 2.42 images/s, ETA 2128s
+  [50/5180] 2.82 images/s, ETA 1817s
+  [75/5180] 3.40 images/s, ETA 1502s
+  [100/5180] 3.41 images/s, ETA 1490s
+  [125/5180] 3.42 images/s, ETA 1476s
+  [150/5180] 3.56 images/s, ETA 1412s
+  [175/5180] 3.27 images/s, ETA 1529s
+  [200/5180] 3.05 images/s, ETA 1632s
+  [225/5180] 3.18 images/s, ETA 1556s
+  [250/5180] 3.23 images/s, ETA 1527s
+  [275/5180] 3.31 images/s, ETA 1484s
+  [300/5180] 3.39 images/s, ETA 1441s
+  [325/5180] 3.34 images/s, ETA 1453s
+  [350/5180] 3.43 images/s, ETA 1410s
+  [375/5180] 3.38 images/s, ETA 1422s
+  [400/5180] 3.34 images/s, ETA 1433s
+  [425/5180] 3.33 images/s, ETA 1428s
+  [450/5180] 3.32 images/s, ETA 1425s
+  [475/5180] 3.25 images/s, ETA 1447s
+  [500/5180] 3.27 images/s, ETA 1433s
+  [525/5180] 3.25 images/s, ETA 1434s
+  [550/5180] 3.21 images/s, ETA 1441s
+  [575/5180] 3.15 images/s, ETA 1461s
+  [600/5180] 3.14 images/s, ETA 1457s
+  [625/5180] 3.08 images/s, ETA 1477s
+  [650/5180] 3.03 images/s, ETA 1495s
+  [675/5180] 3.00 images/s, ETA 1504s
+  [700/5180] 2.97 images/s, ETA 1507s
+  [725/5180] 2.93 images/s, ETA 1523s
+  [750/5180] 2.91 images/s, ETA 1521s
+  [775/5180] 2.89 images/s, ETA 1524s
+  [800/5180] 2.89 images/s, ETA 1517s
+  [825/5180] 2.88 images/s, ETA 1510s
+  [850/5180] 2.90 images/s, ETA 1494s
+  [875/5180] 2.90 images/s, ETA 1483s
+  [900/5180] 2.88 images/s, ETA 1485s
+  [925/5180] 2.90 images/s, ETA 1466s
+  [950/5180] 2.88 images/s, ETA 1469s
+  [975/5180] 2.89 images/s, ETA 1453s
+  [1000/5180] 2.88 images/s, ETA 1452s
+  [1025/5180] 2.88 images/s, ETA 1444s
+  [1050/5180] 2.88 images/s, ETA 1436s
+  [1075/5180] 2.89 images/s, ETA 1418s
+  [1100/5180] 2.89 images/s, ETA 1414s
+  [1125/5180] 2.91 images/s, ETA 1396s
+  [1150/5180] 2.93 images/s, ETA 1376s
+  [1175/5180] 2.93 images/s, ETA 1366s
+  [1200/5180] 2.96 images/s, ETA 1346s
+  [1225/5180] 2.98 images/s, ETA 1328s
+  [1250/5180] 3.00 images/s, ETA 1311s
+  [1275/5180] 2.98 images/s, ETA 1309s
+  [1300/5180] 2.99 images/s, ETA 1299s
+  [1325/5180] 2.98 images/s, ETA 1293s
+  [1350/5180] 2.97 images/s, ETA 1290s
+  [1375/5180] 2.99 images/s, ETA 1271s
+  [1400/5180] 2.98 images/s, ETA 1269s
+  [1425/5180] 2.99 images/s, ETA 1255s
+  [1450/5180] 3.01 images/s, ETA 1238s
+  [1475/5180] 3.04 images/s, ETA 1220s
+  [1500/5180] 3.03 images/s, ETA 1215s
+  [1525/5180] 3.02 images/s, ETA 1209s
+  [1550/5180] 3.00 images/s, ETA 1209s
+  [1575/5180] 3.02 images/s, ETA 1195s
+  [1600/5180] 3.02 images/s, ETA 1187s
+  [1625/5180] 3.04 images/s, ETA 1170s
+  [1650/5180] 3.06 images/s, ETA 1153s
+  [1675/5180] 3.08 images/s, ETA 1140s
+  [1700/5180] 3.07 images/s, ETA 1135s
+  [1725/5180] 3.06 images/s, ETA 1130s
+  [1750/5180] 3.03 images/s, ETA 1132s
+  [1775/5180] 3.03 images/s, ETA 1124s
+  [1800/5180] 3.02 images/s, ETA 1120s
+  [1825/5180] 2.99 images/s, ETA 1122s
+  [1850/5180] 2.97 images/s, ETA 1121s
+  [1875/5180] 2.95 images/s, ETA 1119s
+  [1900/5180] 2.94 images/s, ETA 1115s
+  [1925/5180] 2.93 images/s, ETA 1110s
+  [1950/5180] 2.93 images/s, ETA 1101s
+  [1975/5180] 2.92 images/s, ETA 1096s
+  [2000/5180] 2.93 images/s, ETA 1085s
+  [2025/5180] 2.95 images/s, ETA 1070s
+  [2050/5180] 2.95 images/s, ETA 1061s
+  [2075/5180] 2.95 images/s, ETA 1051s
+  [2100/5180] 2.96 images/s, ETA 1042s
+  [2125/5180] 2.95 images/s, ETA 1036s
+  [2150/5180] 2.93 images/s, ETA 1035s
+  [2175/5180] 2.91 images/s, ETA 1032s
+  [2200/5180] 2.92 images/s, ETA 1021s
+  [2225/5180] 2.92 images/s, ETA 1012s
+  [2250/5180] 2.93 images/s, ETA 1001s
+  [2275/5180] 2.92 images/s, ETA 995s
+  [2300/5180] 2.93 images/s, ETA 984s
+  [2325/5180] 2.92 images/s, ETA 977s
+  [2350/5180] 2.92 images/s, ETA 968s
+  [2375/5180] 2.92 images/s, ETA 959s
+  [2400/5180] 2.92 images/s, ETA 951s
+  [2425/5180] 2.91 images/s, ETA 947s
+  [2450/5180] 2.89 images/s, ETA 943s
+  [2475/5180] 2.88 images/s, ETA 938s
+  [2500/5180] 2.89 images/s, ETA 929s
+  [2525/5180] 2.89 images/s, ETA 919s
+  [2550/5180] 2.89 images/s, ETA 910s
+  [2575/5180] 2.87 images/s, ETA 907s
+  [2600/5180] 2.86 images/s, ETA 903s
+  [2625/5180] 2.86 images/s, ETA 892s
+  [2650/5180] 2.86 images/s, ETA 884s
+  [2675/5180] 2.87 images/s, ETA 873s
+  [2700/5180] 2.87 images/s, ETA 863s
+  [2725/5180] 2.88 images/s, ETA 853s
+  [2750/5180] 2.88 images/s, ETA 843s
+  [2775/5180] 2.88 images/s, ETA 835s
+  [2800/5180] 2.88 images/s, ETA 827s
+  [2825/5180] 2.87 images/s, ETA 821s
+  [2850/5180] 2.87 images/s, ETA 813s
+  [2875/5180] 2.87 images/s, ETA 804s
+  [2900/5180] 2.87 images/s, ETA 795s
+  [2925/5180] 2.87 images/s, ETA 785s
+  [2950/5180] 2.87 images/s, ETA 776s
+  [2975/5180] 2.88 images/s, ETA 767s
+  [3000/5180] 2.87 images/s, ETA 760s
+  [3025/5180] 2.86 images/s, ETA 753s
+  [3050/5180] 2.87 images/s, ETA 743s
+  [3075/5180] 2.87 images/s, ETA 733s
+  [3100/5180] 2.87 images/s, ETA 724s
+  [3125/5180] 2.87 images/s, ETA 716s
+  [3150/5180] 2.86 images/s, ETA 709s
+  [3175/5180] 2.87 images/s, ETA 699s
+  [3200/5180] 2.87 images/s, ETA 690s
+  [3225/5180] 2.86 images/s, ETA 683s
+  [3250/5180] 2.87 images/s, ETA 672s
+  [3275/5180] 2.86 images/s, ETA 666s
+  [3300/5180] 2.85 images/s, ETA 659s
+  [3325/5180] 2.85 images/s, ETA 651s
+  [3350/5180] 2.84 images/s, ETA 644s
+  [3375/5180] 2.84 images/s, ETA 635s
+  [3400/5180] 2.84 images/s, ETA 627s
+  [3425/5180] 2.84 images/s, ETA 618s
+  [3450/5180] 2.85 images/s, ETA 608s
+  [3475/5180] 2.84 images/s, ETA 599s
+  [3500/5180] 2.84 images/s, ETA 592s
+  [3525/5180] 2.83 images/s, ETA 584s
+  [3550/5180] 2.83 images/s, ETA 576s
+  [3575/5180] 2.83 images/s, ETA 567s
+  [3600/5180] 2.84 images/s, ETA 557s
+  [3625/5180] 2.83 images/s, ETA 549s
+  [3650/5180] 2.83 images/s, ETA 540s
+  [3675/5180] 2.83 images/s, ETA 532s
+  [3700/5180] 2.83 images/s, ETA 524s
+  [3725/5180] 2.83 images/s, ETA 514s
+  [3750/5180] 2.83 images/s, ETA 505s
+  [3775/5180] 2.84 images/s, ETA 495s
+  [3800/5180] 2.84 images/s, ETA 486s
+  [3825/5180] 2.84 images/s, ETA 476s
+  [3850/5180] 2.85 images/s, ETA 467s
+  [3875/5180] 2.85 images/s, ETA 458s
+  [3900/5180] 2.85 images/s, ETA 449s
+  [3925/5180] 2.85 images/s, ETA 440s
+  [3950/5180] 2.85 images/s, ETA 431s
+  [3975/5180] 2.84 images/s, ETA 424s
+  [4000/5180] 2.84 images/s, ETA 416s
+  [4025/5180] 2.83 images/s, ETA 408s
+  [4050/5180] 2.83 images/s, ETA 400s
+  [4075/5180] 2.83 images/s, ETA 391s
+  [4100/5180] 2.83 images/s, ETA 382s
+  [4125/5180] 2.82 images/s, ETA 374s
+  [4150/5180] 2.83 images/s, ETA 364s
+  [4175/5180] 2.83 images/s, ETA 355s
+  [4200/5180] 2.83 images/s, ETA 346s
+  [4225/5180] 2.83 images/s, ETA 337s
+  [4250/5180] 2.84 images/s, ETA 328s
+  [4275/5180] 2.84 images/s, ETA 318s
+  [4300/5180] 2.84 images/s, ETA 309s
+  [4325/5180] 2.84 images/s, ETA 301s
+  [4350/5180] 2.85 images/s, ETA 291s
+  [4375/5180] 2.85 images/s, ETA 282s
+  [4400/5180] 2.85 images/s, ETA 273s
+  [4425/5180] 2.85 images/s, ETA 265s
+  [4450/5180] 2.85 images/s, ETA 256s
+  [4475/5180] 2.85 images/s, ETA 247s
+  [4500/5180] 2.85 images/s, ETA 238s
+  [4525/5180] 2.86 images/s, ETA 229s
+  [4550/5180] 2.86 images/s, ETA 220s
+  [4575/5180] 2.86 images/s, ETA 211s
+  [4600/5180] 2.85 images/s, ETA 203s
+  [4625/5180] 2.86 images/s, ETA 194s
+  [4650/5180] 2.86 images/s, ETA 185s
+  [4675/5180] 2.86 images/s, ETA 177s
+  [4700/5180] 2.86 images/s, ETA 168s
+  [4725/5180] 2.86 images/s, ETA 159s
+  [4750/5180] 2.87 images/s, ETA 150s
+  [4775/5180] 2.87 images/s, ETA 141s
+  [4800/5180] 2.87 images/s, ETA 132s
+  [4825/5180] 2.87 images/s, ETA 124s
+  [4850/5180] 2.86 images/s, ETA 115s
+  [4875/5180] 2.86 images/s, ETA 107s
+  [4900/5180] 2.85 images/s, ETA 98s
+  [4925/5180] 2.85 images/s, ETA 90s
+  [4950/5180] 2.84 images/s, ETA 81s
+  [4975/5180] 2.83 images/s, ETA 72s
+  [5000/5180] 2.83 images/s, ETA 64s
+  [5025/5180] 2.83 images/s, ETA 55s
+  [5050/5180] 2.83 images/s, ETA 46s
+  [5075/5180] 2.83 images/s, ETA 37s
+  [5100/5180] 2.83 images/s, ETA 28s
+  [5125/5180] 2.83 images/s, ETA 19s
+  [5150/5180] 2.83 images/s, ETA 11s
+  [5175/5180] 2.83 images/s, ETA 2s
+[quick] loaded classifier from /Users/mykytasiryk/Downloads/classifier.pkl
+
+[quick] total time: 1833s
+[quick] saved report -> /Users/mykytasiryk/runs/celebdf_eval_full/report.json
+
+=== Phase-1 result ===
+  Frame AUROC  val=  n/a   test=0.5104
+  Video AUROC  val=  n/a   test=0.5004  (mean-pool)
+               val=  n/a   test=0.5012  (max-pool)
+  Test split:  videos real=178 fake=340
+  Top 5 features (by GBC importance):
+    R_mean                         0.1209
+    E_decrease_first_decile        0.0823
+    E_smoothness_ratio             0.0808
+    L_spectral_entropy             0.0709
+    absL_p99                       0.0706
+
+Headline test AUROC (video-level mean-pool): 0.5004
+
+What to do with this number:
+  AUROC >= 0.85  -> strong baseline; the heuristic + classifier alone
+                    is defendable; CNN training is an upgrade, not a
+                    prerequisite. Phase 2 is optional.
+  AUROC ~ 0.70   -> reasonable but not great; CNN training likely
+                    helps; consider Phase 2 if you have cluster time.
+  AUROC <= 0.55  -> near chance; the math pipeline + heuristic does
+                    not separate this dataset; revisit assumptions
+                    before committing to CNN training.

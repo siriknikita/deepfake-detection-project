@@ -1,0 +1,96 @@
+[quick] runs_dir = /Users/mykytasiryk/runs/celebdf_eval
+[quick] image-size = 256
+[quick] frames-per-video train/eval = 30/10
+[quick] enumerating videos for the disjoint split ...
+[quick] split: train=364 val=77 test=77 (of 518 total videos)
+[quick] dataset sizes: train=10867 val=770 test=770
+[quick] extracting features (val) ...
+  [25/770] 1.79 images/s, ETA 417s
+  [50/770] 2.13 images/s, ETA 337s
+  [75/770] 2.29 images/s, ETA 303s
+  [100/770] 2.46 images/s, ETA 272s
+  [125/770] 2.48 images/s, ETA 261s
+  [150/770] 2.40 images/s, ETA 259s
+  [175/770] 2.29 images/s, ETA 260s
+  [200/770] 2.43 images/s, ETA 234s
+  [225/770] 2.47 images/s, ETA 220s
+  [250/770] 2.51 images/s, ETA 207s
+  [275/770] 2.48 images/s, ETA 200s
+  [300/770] 2.45 images/s, ETA 192s
+  [325/770] 2.51 images/s, ETA 177s
+  [350/770] 2.51 images/s, ETA 167s
+  [375/770] 2.57 images/s, ETA 154s
+  [400/770] 2.61 images/s, ETA 142s
+  [425/770] 2.55 images/s, ETA 135s
+  [450/770] 2.57 images/s, ETA 125s
+  [475/770] 2.56 images/s, ETA 115s
+  [500/770] 2.56 images/s, ETA 106s
+  [525/770] 2.55 images/s, ETA 96s
+  [550/770] 2.55 images/s, ETA 86s
+  [575/770] 2.58 images/s, ETA 76s
+  [600/770] 2.55 images/s, ETA 67s
+  [625/770] 2.55 images/s, ETA 57s
+  [650/770] 2.57 images/s, ETA 47s
+  [675/770] 2.57 images/s, ETA 37s
+  [700/770] 2.56 images/s, ETA 27s
+  [725/770] 2.58 images/s, ETA 17s
+  [750/770] 2.59 images/s, ETA 8s
+[quick] extracting features (test) ...
+  [25/770] 4.03 images/s, ETA 185s
+  [50/770] 3.58 images/s, ETA 201s
+  [75/770] 3.30 images/s, ETA 211s
+  [100/770] 3.00 images/s, ETA 223s
+  [125/770] 3.16 images/s, ETA 204s
+  [150/770] 3.01 images/s, ETA 206s
+  [175/770] 3.22 images/s, ETA 185s
+  [200/770] 3.28 images/s, ETA 174s
+  [225/770] 3.29 images/s, ETA 166s
+  [250/770] 3.41 images/s, ETA 153s
+  [275/770] 3.25 images/s, ETA 152s
+  [300/770] 3.23 images/s, ETA 146s
+  [325/770] 3.10 images/s, ETA 144s
+  [350/770] 3.06 images/s, ETA 137s
+  [375/770] 2.99 images/s, ETA 132s
+  [400/770] 2.93 images/s, ETA 126s
+  [425/770] 2.97 images/s, ETA 116s
+  [450/770] 2.96 images/s, ETA 108s
+  [475/770] 2.94 images/s, ETA 100s
+  [500/770] 2.88 images/s, ETA 94s
+  [525/770] 2.87 images/s, ETA 85s
+  [550/770] 2.93 images/s, ETA 75s
+  [575/770] 2.92 images/s, ETA 67s
+  [600/770] 2.86 images/s, ETA 59s
+  [625/770] 2.89 images/s, ETA 50s
+  [650/770] 2.86 images/s, ETA 42s
+  [675/770] 2.89 images/s, ETA 33s
+  [700/770] 2.90 images/s, ETA 24s
+  [725/770] 2.89 images/s, ETA 16s
+  [750/770] 2.85 images/s, ETA 7s
+[quick] loaded classifier from /Users/mykytasiryk/Downloads/classifier.pkl
+
+[quick] total time: 567s
+[quick] saved report -> /Users/mykytasiryk/runs/celebdf_eval/report.json
+
+=== Phase-1 result ===
+  Frame AUROC  val=0.5660  test=0.5566
+  Video AUROC  val=0.5578  test=0.5317  (mean-pool)
+               val=0.5252  test=0.5615  (max-pool)
+  Test split:  videos real=26 fake=51
+  Top 5 features (by GBC importance):
+    R_mean                         0.1209
+    E_decrease_first_decile        0.0823
+    E_smoothness_ratio             0.0808
+    L_spectral_entropy             0.0709
+    absL_p99                       0.0706
+
+Headline test AUROC (video-level mean-pool): 0.5317
+
+What to do with this number:
+  AUROC >= 0.85  -> strong baseline; the heuristic + classifier alone
+                    is defendable; CNN training is an upgrade, not a
+                    prerequisite. Phase 2 is optional.
+  AUROC ~ 0.70   -> reasonable but not great; CNN training likely
+                    helps; consider Phase 2 if you have cluster time.
+  AUROC <= 0.55  -> near chance; the math pipeline + heuristic does
+                    not separate this dataset; revisit assumptions
+                    before committing to CNN training.

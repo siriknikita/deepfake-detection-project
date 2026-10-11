@@ -1,0 +1,30 @@
+{
+  "Deepfakes": {
+    "test_frame_auroc": 0.3678072517606996,
+    "test_video_auroc_mean": 0.3479993808528752,
+    "test_video_auroc_max": 0.38112375203157656,
+    "n_train_frames": 46672,
+    "n_test_videos": 323
+  },
+  "Face2Face": {
+    "test_frame_auroc": 0.42107557464592527,
+    "test_video_auroc_mean": 0.41246807522637563,
+    "test_video_auroc_max": 0.4105332404612646,
+    "n_train_frames": 46668,
+    "n_test_videos": 323
+  },
+  "FaceSwap": {
+    "test_frame_auroc": 0.3510159817351598,
+    "test_video_auroc_mean": 0.3244717901091247,
+    "test_video_auroc_max": 0.3865799860691897,
+    "n_train_frames": 46666,
+    "n_test_videos": 323
+  },
+  "NeuralTextures": {
+    "test_frame_auroc": 0.4359126615587029,
+    "test_video_auroc_mean": 0.4243479606841576,
+    "test_video_auroc_max": 0.4268438975311509,
+    "n_train_frames": 46666,
+    "n_test_videos": 323
+  }
+}

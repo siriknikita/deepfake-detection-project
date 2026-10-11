@@ -1,0 +1,36 @@
+{
+  "method": "Deepfakes",
+  "n_train_frames": 46672,
+  "n_val_frames": 3240,
+  "n_test_frames": 3230,
+  "val": {
+    "frame_auroc": 0.34630430640243903,
+    "frame_accuracy": 0.4589506172839506,
+    "video_auroc_mean": 0.32496189024390243,
+    "video_auroc_max": 0.3625762195121951,
+    "n_videos": 324,
+    "n_video_real": 160,
+    "n_video_fake": 164
+  },
+  "test": {
+    "frame_auroc": 0.3678072517606996,
+    "frame_accuracy": 0.491640866873065,
+    "video_auroc_mean": 0.3479993808528752,
+    "video_auroc_max": 0.38112375203157656,
+    "n_videos": 323,
+    "n_video_real": 146,
+    "n_video_fake": 177
+  },
+  "test_top_features": {
+    "R_std": 0.07907582820960084,
+    "R_mean": 0.07749262659888942,
+    "absL_mean": 0.07455836106858617,
+    "E_data": 0.07434627912470809,
+    "L_spectral_entropy": 0.07244615936437526,
+    "E_smoothness_ratio": 0.06788155486492813,
+    "E_decrease_first_decile": 0.06442738776745226,
+    "absL_p95": 0.06273729938839918,
+    "E_consistency_ratio": 0.060081540637992994,
+    "E_consistency": 0.05848850244942032
+  }
+}

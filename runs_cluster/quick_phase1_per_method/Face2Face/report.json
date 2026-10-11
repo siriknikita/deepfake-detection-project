@@ -1,0 +1,36 @@
+{
+  "method": "Face2Face",
+  "n_train_frames": 46668,
+  "n_val_frames": 3240,
+  "n_test_frames": 3230,
+  "val": {
+    "frame_auroc": 0.42297675304878046,
+    "frame_accuracy": 0.5046296296296297,
+    "video_auroc_mean": 0.4106707317073171,
+    "video_auroc_max": 0.3910060975609756,
+    "n_videos": 324,
+    "n_video_real": 160,
+    "n_video_fake": 164
+  },
+  "test": {
+    "frame_auroc": 0.42107557464592527,
+    "frame_accuracy": 0.530030959752322,
+    "video_auroc_mean": 0.41246807522637563,
+    "video_auroc_max": 0.4105332404612646,
+    "n_videos": 323,
+    "n_video_real": 146,
+    "n_video_fake": 177
+  },
+  "test_top_features": {
+    "R_mean": 0.14780787651388622,
+    "L_spectral_entropy": 0.08712472564001923,
+    "E_decrease_first_decile": 0.08361934622728288,
+    "E_smoothness_ratio": 0.08134840861780551,
+    "E_consistency_ratio": 0.06556813229270642,
+    "R_p99": 0.06451682566635422,
+    "absL_p95": 0.06296732924412983,
+    "R_p95": 0.05985280226227379,
+    "absL_mean": 0.053378009676740466,
+    "absL_p99": 0.05152682050027331
+  }
+}
